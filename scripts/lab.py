@@ -72,7 +72,7 @@ class LabConfig(Config):
     #GPU_COUNT = 4
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 5  # Background + caloriemate, koiwashi, fabrise, peyang, shirt
+    NUM_CLASSES = 1 + 8  # Background + caloriemate, koiwashi, fabrise, peyang, shirt
 
     # Number of training steps per epoch
     STEPS_PER_EPOCH = 50
@@ -97,7 +97,10 @@ class LabDataset(utils.Dataset):
         self.add_class("lab", 2, "koiwashi")
         self.add_class("lab", 3, "fabrise")
         self.add_class("lab", 4, "saratekt")
-        self.add_class("lab", 5, "bottle")
+        self.add_class("lab", 5, "cleanser")
+        self.add_class("lab", 6, "jerry")
+        self.add_class("lab", 7, "dishcup")
+        self.add_class("lab", 8, "bottle")
 
         # Train or validation dataset?
         assert subset in ["train", "val"]
@@ -184,7 +187,10 @@ class LabDataset(utils.Dataset):
             elif info["names"][i]["name"] == "koiwashi": class_id = 2
             elif info["names"][i]["name"] == "fabrise": class_id = 3
             elif info["names"][i]["name"] == "saratekt": class_id = 4
-            elif info["names"][i]["name"] == "bottle": class_id = 5
+            elif info["names"][i]["name"] == "cleanser": class_id = 5
+            elif info["names"][i]["name"] == "jerry": class_id = 6
+            elif info["names"][i]["name"] == "dishcup": class_id = 7
+            elif info["names"][i]["name"] == "bottle": class_id = 8
             class_ids.append(class_id)
 
         # Return mask, and array of class IDs of each instance. Since we have

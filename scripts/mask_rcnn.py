@@ -24,7 +24,7 @@ from mrcnn import visualize
 ROOT_DIR = os.path.abspath("src/mask_rcnn_ros")
 MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
 
-CLASS_NAMES = ['BG', 'caloriemate', 'koiwashi', 'fabrise', 'saratekt', 'bottle']
+CLASS_NAMES = ['BG', 'caloriemate', 'koiwashi', 'fabrise', 'saratekt', 'cleanser', 'jerry', 'dishcup', 'bottle']
 
 class InferenceConfig(lab.LabConfig):
     # Set batch size to 1 since we'll be running inference on
