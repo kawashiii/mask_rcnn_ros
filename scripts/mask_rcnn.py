@@ -44,15 +44,8 @@ class MaskRCNNNode(object):
         # Create model object in inference mode.
         self._model = modellib.MaskRCNN(mode="inference", model_dir="",
                                         config=config)
-        # Load weights trained on MS-COCO
-        model_path = rospy.get_param('~model_path', MODEL_PATH)
-        # Download COCO trained weights from Releases if needed
-        if model_path == MODEL_PATH and not os.path.exists(MODEL_PATH):
-            utils.download_trained_weights(MODEL_PATH)
 
-        print(model_path)
-
-        self._model.load_weights(model_path, by_name=True)
+        self._model.load_weights(MODEL_PATH, by_name=True)
 
         self._class_names = rospy.get_param('~class_names', CLASS_NAMES)
 
