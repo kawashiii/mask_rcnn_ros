@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import time
 import threading
 import numpy as np
 
@@ -23,6 +24,7 @@ from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath("src/mask_rcnn_ros")
 MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
+TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
 CLASS_NAMES = ['BG', 'caloriemate', 'koiwashi', 'fabrise', 'saratekt', 'cleanser', 'jerry', 'dishcup', 'bottle']
 
@@ -39,29 +41,26 @@ class MaskRCNNNode(object):
         config = InferenceConfig()
         config.display()
 
-        self._visualization = rospy.get_param('~visualization', True)
-
         # Create model object in inference mode.
-        self._model = modellib.MaskRCNN(mode="inference", model_dir="",
-                                        config=config)
-
+        self._model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
         self._model.load_weights(MODEL_PATH, by_name=True)
-
-        self._class_names = rospy.get_param('~class_names', CLASS_NAMES)
 
         self._last_msg = None
         self._msg_lock = threading.Lock()
 
+        # self._class_names = rospy.get_param('~class_names', CLASS_NAMES)
+        # self._visualization = rospy.get_param('~visualization', True)
+        # self._publish_rate = rospy.get_param('~publish_rate', 100)
+        self._class_names = CLASS_NAMES
+        self._visualization = True
+        self._publish_rate = 100
         self._class_colors = visualize.random_colors(len(CLASS_NAMES))
-
-        self._publish_rate = rospy.get_param('~publish_rate', 100)
 
     def run(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
         vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
         sub = rospy.Subscriber("/camera/color/image_raw", Image, self._image_callback, queue_size=1)
-        # sub = rospy.Subscriber('~input', Image,
-        #                        self._image_callback, queue_size=1)
+        # sub = rospy.Subscriber('~input', Image, self._image_callback, queue_size=1)
 
         rate = rospy.Rate(self._publish_rate)
         while not rospy.is_shutdown():
@@ -91,6 +90,39 @@ class MaskRCNNNode(object):
                     image_msg = self._cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
                     vis_pub.publish(image_msg)
 
+            rate.sleep()
+
+    def run2(self):
+        self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
+        vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
+        sub = rospy.Subscriber("/camera/color/image_raw", Image, self._image_callback, queue_size=1)
+        
+        rate = rospy.Rate(1)
+        while not rospy.is_shutdown():
+            np_image = cv2.imread(TEST_IMG)
+            np_image = np_image[:, 420:1500]
+            
+            # Run detection
+            t1 = time.time()
+            results = self._model.detect([np_image], verbose=0)
+            t2 = time.time()
+            result = results[0]
+            # result_msg = self._build_result_msg(msg, result)
+            # self._result_pub.publish(result_msg)
+            
+            # Print detection time
+            detection_time = t2 - t1
+            print("Detection time: ", round(detection_time, 2), " s")
+            
+            # Visualize results
+            if self._visualization:
+                vis_image = self._visualize(result, np_image)
+                cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
+                cv2.convertScaleAbs(vis_image, cv_result)
+                image_msg = self._cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+                vis_pub.publish(image_msg)
+                print("Published detected image!")
+                
             rate.sleep()
 
     def _build_result_msg(self, msg, result):
@@ -152,7 +184,8 @@ def main():
     rospy.init_node('mask_rcnn')
 
     node = MaskRCNNNode()
-    node.run()
+    # node.run()
+    node.run2()
 
 if __name__ == '__main__':
     main()
