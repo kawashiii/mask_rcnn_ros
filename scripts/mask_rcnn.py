@@ -11,6 +11,7 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
 from std_msgs.msg import UInt8MultiArray
 from mask_rcnn_ros.msg import Result
+from mask_rcnn_ros.srv import Detect, DetectResponse
 #from cv_bridge import CvBridge
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
@@ -44,6 +45,7 @@ class MaskRCNNNode(object):
         # Create model object in inference mode.
         self._model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
         self._model.load_weights(MODEL_PATH, by_name=True)
+        self._model.keras_model._make_predict_function()
 
         self._last_msg = None
         self._msg_lock = threading.Lock()
@@ -125,6 +127,51 @@ class MaskRCNNNode(object):
                 
             rate.sleep()
 
+    def run3(self):
+        self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
+        self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
+
+        self.detect_srv = rospy.Service('~detect_objects', Detect, self._detect_objects)
+        print("Ready to detect objects. Please service call /mask_rcnn/detect_objects")
+        rospy.spin()
+
+    def _detect_objects(self, req):
+        res = DetectResponse()
+        res.message = "OK"
+        res.success = True
+
+        if (req.id == 1):
+            print("Waiting frame...")
+            msg = rospy.wait_for_message("/camera/color/image_raw", Image)
+            print("Acquired frame!")
+
+            np_image = self._cv_bridge.imgmsg_to_cv2(msg, 'bgr8')
+            np_image = np_image[:, 420:1500]
+            
+            # Run detection
+            t1 = time.time()
+            results = self._model.detect([np_image], verbose=0)
+            t2 = time.time()
+            result = results[0]
+            result_msg = self._build_result_msg(msg, result)
+            self._result_pub.publish(result_msg)
+            
+            # Print detection time
+            detection_time = t2 - t1
+            print("Detection time: ", round(detection_time, 2), " s")
+            
+            # Visualize results
+            if self._visualization:
+                vis_image = self._visualize(result, np_image)
+                cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
+                cv2.convertScaleAbs(vis_image, cv_result)
+                image_msg = self._cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+                self.vis_pub.publish(image_msg)
+                print("Published detected image!")
+
+        
+        return res
+
     def _build_result_msg(self, msg, result):
         result_msg = Result()
         result_msg.header = msg.header
@@ -185,7 +232,7 @@ def main():
 
     node = MaskRCNNNode()
     # node.run()
-    node.run2()
+    node.run3()
 
 if __name__ == '__main__':
     main()
