@@ -11,6 +11,7 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
 from std_msgs.msg import UInt8MultiArray
 from mask_rcnn_ros.msg import Result
+from mask_rcnn_ros.msg import Result_lab
 from mask_rcnn_ros.srv import Detect, DetectResponse
 #from cv_bridge import CvBridge
 
@@ -129,9 +130,10 @@ class MaskRCNNNode(object):
 
     def run3(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
+        self._result_lab_pub = rospy.Publisher('~result_detection', Result_lab, queue_size=1)
         self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
 
-        self.detect_srv = rospy.Service('~detect_objects', Detect, self._detect_objects)
+        self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._detect_objects)
         print("Ready to detect objects. Please service call /mask_rcnn/detect_objects")
         rospy.spin()
 
@@ -155,6 +157,9 @@ class MaskRCNNNode(object):
             result = results[0]
             result_msg = self._build_result_msg(msg, result)
             self._result_pub.publish(result_msg)
+
+            result_lab_msg = self._build_result_lab_msg(msg, result)
+            self._result_lab.publish(result_lab_msg)
             
             # Print detection time
             detection_time = t2 - t1
@@ -171,6 +176,18 @@ class MaskRCNNNode(object):
 
         
         return res
+
+    def _build_result_lab_msg(self, msg, result):
+        result_msg = Result_lab()
+        result_msg.header = msg.header
+        scores = result['scores']
+        masks = result['masks']
+        result_msg.count = len(scores)
+        ids = []
+        for i in len(result['scores']):
+            ids.append(i)
+            
+
 
     def _build_result_msg(self, msg, result):
         result_msg = Result()
