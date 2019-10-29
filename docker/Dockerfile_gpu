@@ -63,6 +63,7 @@ RUN mkdir /root/src && cd /root/src && \
     git clone -b lab_config https://github.com/damien-petit/Mask_RCNN &&\
     cd Mask_RCNN && \
     git fetch --all && git checkout origin/docker_gpu mrcnn && \
+    git reset HEAD mrcnn/model.py && \
     python3 -m pip install -r requirements_gpu.txt && \
     python3 -m pip install pycocotools && \
     python3 setup.py install && \
