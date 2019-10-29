@@ -27,7 +27,7 @@ ROOT_DIR = os.path.abspath("src/mask_rcnn_ros")
 MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
 TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
-CLASS_NAMES = ['BG', 'caloriemate', 'koiwashi', 'fabrise', 'saratekt', 'cleanser', 'jerry', 'dishcup', 'bottle']
+CLASS_NAMES = lab.class_names
 
 class InferenceConfig(lab.LabConfig):
     # Set batch size to 1 since we'll be running inference on
