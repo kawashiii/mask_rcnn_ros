@@ -159,8 +159,8 @@ class MaskRCNNNode(object):
             result_msg = self._build_result_msg(msg, result)
             self._result_pub.publish(result_msg)
 
-            result_lab_msg = self._build_result_lab_msg(msg, result)
-            self._result_lab.publish(result_lab_msg)
+            # result_lab_msg = self._build_result_lab_msg(msg, result)
+            # self._result_lab_pub.publish(result_lab_msg)
             
             # Print detection time
             detection_time = t2 - t1
@@ -219,8 +219,8 @@ class MaskRCNNNode(object):
         cv2.circle(img, cntr, 3, (255, 0, 255), 2)
         p1 = (cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0])
         p2 = (cntr[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], cntr[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0])
-        drawAxis(img, cntr, p1, (0, 255, 0), 1)
-        drawAxis(img, cntr, p2, (255, 255, 0), 5)
+        self.drawAxis(img, cntr, p1, (0, 255, 0), 1)
+        self.drawAxis(img, cntr, p2, (255, 255, 0), 5)
         angle = atan2(eigenvectors[0,1], eigenvectors[0,0]) # orientation in radians
         
         return angle               
@@ -258,32 +258,45 @@ class MaskRCNNNode(object):
         return result_msg
 
     def _visualize(self, result, image):
-        from matplotlib.backends.backend_agg import FigureCanvasAgg
-        from matplotlib.figure import Figure
+        # from matplotlib.backends.backend_agg import FigureCanvasAgg
+        # from matplotlib.figure import Figure
 
-        fig = Figure()
-        canvas = FigureCanvasAgg(fig)
-        axes = fig.gca()
+        # fig = Figure()
+        # canvas = FigureCanvasAgg(fig)
+        # axes = fig.gca()
+        # visualize.display_instances(image, result['rois'], result['masks'],
+        #                             result['class_ids'], CLASS_NAMES,
+        #                             result['scores'], ax = axes)
+        # fig.tight_layout()
+        # canvas.draw()
+        # result = np.fromstring(canvas.tostring_rgb(), dtype='uint8')
+
+        #_, _, w, h = fig.bbox.bounds
+        #result = result.reshape((int(h), int(w), 3))
+
+        rois = result['rois']
         masks = result['masks']
-        visualize.display_instances(image, result['rois'], result['masks'],
-                                    result['class_ids'], CLASS_NAMES,
-                                    result['scores'], ax=axes)
-        fig.tight_layout()
-        canvas.draw()
-        result = np.fromstring(canvas.tostring_rgb(), dtype='uint8')
-
-        _, _, w, h = fig.bbox.bounds
-        result = result.reshape((int(h), int(w), 3))
+        class_ids = result['class_ids']
+        scores = result['scores']
+        result = np.copy(image)
 
         for i in range(masks.shape[-1]):
-            ret, thresh = cv2.threshold(mask[:,:,i], 0.5, 1.0, cv2.THRESH_BINARY)
+            y1, x1, y2, x2 = rois[i]
+            class_id = class_ids[i]
+            score = scores[i]
+            label = CLASS_NAMES[class_id]
+            caption = "{} {:.3f}".format(label, score) if score else label
+            cv2.putText(result, caption, (x1, y1 + 8), cv2.FONT_HERSHEY_TRIPLEX, 0.6, (0,255,0), 1, 8)
+ 
+            m = masks[:,:,i].astype(np.uint8)
+            ret, thresh = cv2.threshold(m, 0.5, 1.0, cv2.THRESH_BINARY)
             contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for i, c in enumerate(contours):
                 area = cv2.contourArea(c)
                 if area < 1e2 or 1e5 < area:
                     continue
                 cv2.drawContours(result, contours, i, (0, 0, 255), 2)
-                getOrientation(c, result)
+                self.getOrientation(c, result)
 
         return result
 
