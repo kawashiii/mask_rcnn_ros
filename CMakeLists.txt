@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
   message_generation
   rospy
   sensor_msgs
+  geometry_msgs
   std_msgs
 )
 
@@ -52,7 +53,6 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Result.msg
-  Result_lab.msg
 #   Message1.msg
 #   Message2.msg
 )
@@ -74,6 +74,7 @@ add_service_files(
 generate_messages(
   DEPENDENCIES
   sensor_msgs
+  geometry_msgs
   std_msgs
 )
 
@@ -109,7 +110,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES mask_rcnn_ros
- CATKIN_DEPENDS message_runtime
+ CATKIN_DEPENDS rospy cv_bridge message_runtime sensor_msgs geometry_msgs std_msgs
 #  DEPENDS system_lib
 )
 

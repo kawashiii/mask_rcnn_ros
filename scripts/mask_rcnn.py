@@ -9,9 +9,10 @@ import rospy
 #from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
+from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Point
 from std_msgs.msg import UInt8MultiArray
 from mask_rcnn_ros.msg import Result
-from mask_rcnn_ros.msg import Result_lab
 from mask_rcnn_ros.srv import Detect, DetectResponse
 #from cv_bridge import CvBridge
 
@@ -131,7 +132,6 @@ class MaskRCNNNode(object):
 
     def run3(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
-        self._result_lab_pub = rospy.Publisher('~result_lab', Result_lab, queue_size=1)
         self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
 
         self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._detect_objects)
@@ -154,17 +154,14 @@ class MaskRCNNNode(object):
             # Run detection
             t1 = time.time()
             results = self._model.detect([np_image], verbose=0)
-            t2 = time.time()
-            result = results[0]
-            result_msg = self._build_result_msg(msg, result)
-            self._result_pub.publish(result_msg)
-
-            # result_lab_msg = self._build_result_lab_msg(msg, result)
-            # self._result_lab_pub.publish(result_lab_msg)
-            
+            t2 = time.time()            
             # Print detection time
             detection_time = t2 - t1
             print("Detection time: ", round(detection_time, 2), " s")
+
+            result = results[0]
+            result_msg = self._build_result_msg(msg, result)
+            self._result_pub.publish(result_msg)
             
             # Visualize results
             if self._visualization:
@@ -177,14 +174,6 @@ class MaskRCNNNode(object):
 
         
         return res
-
-    def _build_result_lab_msg(self, msg, result):
-        result_msg = Result_lab()
-        result_msg.header = msg.header
-        scores = result['scores']
-        masks = result['masks']
-        result_msg.count = len(scores)
-        ids = []
 
     def drawAxis(self, img, p_, q_, colour, scale):
         p = list(p_)
@@ -245,6 +234,40 @@ class MaskRCNNNode(object):
 
             score = result['scores'][i]
             result_msg.scores.append(score)
+
+            m = result['masks'][:,:,i].astype(np.uint8)
+            ret, thresh = cv2.threshold(m, 0.5, 1.0, cv2.THRESH_BINARY)
+            contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+            for j, c in enumerate(contours):
+                area = cv2.contourArea(c)
+                if area < 1e2 or 1e5 < area:
+                    continue
+
+                sz = len(c)
+                data_pts = np.empty((sz, 2), dtype=np.float64)
+                for k in range(data_pts.shape[0]):
+                    data_pts[k,0] = c[k,0,0]
+                    data_pts[k,1] = c[k,0,1]
+                mean = np.empty((0))
+                mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
+                cntr = (int(mean[0,0]), int(mean[0,1]))
+
+                center = Point()
+                center.x = cntr[0]
+                center.y = cntr[1]
+                center.z = 0
+                result_msg.centers.append(center)
+
+                x_axis = Vector3()
+                x_axis.x = eigenvectors[0,0] * eigenvalues[0,0]
+                x_axis.y = eigenvectors[0,1] * eigenvalues[0,0]
+                x_axis.z = 0
+                y_axis = Vector3()
+                y_axis.x = eigenvectors[1,0] * eigenvalues[1,0]
+                y_axis_y = eigenvectors[1,1] * eigenvalues[1,0]
+                y_axis_z = 0
+                result_msg.x_axis.append(x_axis)
+                result_msg.y_axis.append(y_axis)
 
             mask = Image()
             mask.header = msg.header
