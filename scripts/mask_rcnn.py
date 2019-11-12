@@ -79,7 +79,6 @@ class MaskRCNNNode(object):
 
             if msg is not None:
                 np_image = self._cv_bridge.imgmsg_to_cv2(msg, 'bgr8')
-                np_image = np_image[:, 420:1500]
 
                 # Run detection
                 results = self._model.detect([np_image], verbose=0)
@@ -105,7 +104,6 @@ class MaskRCNNNode(object):
         rate = rospy.Rate(1)
         while not rospy.is_shutdown():
             np_image = cv2.imread(TEST_IMG)
-            np_image = np_image[:, 420:1500]
             
             # Run detection
             t1 = time.time()
@@ -132,7 +130,7 @@ class MaskRCNNNode(object):
 
     def run3(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
-        self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1)
+        self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1, latch=True)
 
         self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._detect_objects)
         print("Ready to detect objects. Please service call /mask_rcnn/detect_objects")
@@ -149,7 +147,6 @@ class MaskRCNNNode(object):
             print("Acquired frame!")
 
             np_image = self._cv_bridge.imgmsg_to_cv2(msg, 'bgr8')
-            np_image = np_image[:, 420:1500]
             
             # Run detection
             t1 = time.time()
