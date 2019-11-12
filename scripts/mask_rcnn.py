@@ -131,6 +131,7 @@ class MaskRCNNNode(object):
     def run3(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
         self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1, latch=True)
+        self.camera_matrix, self.dist_coeffs = getCalibrationMatrix()
 
         self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._detect_objects)
         print("Ready to detect objects. Please service call /mask_rcnn/detect_objects")
@@ -225,7 +226,6 @@ class MaskRCNNNode(object):
     def _build_result_msg(self, msg, result, image, depth):
         result_msg = Result()
         result_msg.header = msg.header
-        camera_matrix, dist_coeffs = getCalibrationMatrix()
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             box = RegionOfInterest()
@@ -260,20 +260,23 @@ class MaskRCNNNode(object):
                 mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
                 cntr = (int(mean[0,0]), int(mean[0,1]))
 
+                undistorted_cntr = cv2.undistortPoints(image[cntr[1]][cntr[0]], self.camera_matrix, self.dist_coeffs)
                 center = Point()
-                center.x = cntr[0]
-                center.y = cntr[1]
-                center.z = 0
+                center.z = depth[cntr[1]][cntr[0]]
+                center.x = undistorted_cntr[0][0]
+                center.y = undistorted_cntr[0][1]
                 result_msg.centers.append(center)
 
+                undistorted_x_axis = cv2.undistortPoints(image[eigenvectors[0,1] * eigenvalues[0,0]][eigenvectors[0,0] * eigenvalues[0,0]], self.camera_matrix, self.dist_coeffs)
+                undistorted_y_axis = cv2.undistortPoints(image[eigenvectors[1,1] * eigenvalues[1,0]][eigenvectors[1,0] * eigenvalues[1,0]], self.camera_matrix, self.dist_coeffs)
                 x_axis = Vector3()
-                x_axis.x = eigenvectors[0,0] * eigenvalues[0,0]
-                x_axis.y = eigenvectors[0,1] * eigenvalues[0,0]
-                x_axis.z = 0
+                x_axis.x = undistorted_x_axis[0][0]
+                x_axis.y = undistorted_x_axis[0][1]
+                x_axis.z = center.y
                 y_axis = Vector3()
-                y_axis.x = eigenvectors[1,0] * eigenvalues[1,0]
-                y_axis_y = eigenvectors[1,1] * eigenvalues[1,0]
-                y_axis_z = 0
+                y_axis.x = undistorted_y_axis[0][0]
+                y_axis_y = undistorted_y_axis[0][1]
+                y_axis_z = center.y
                 result_msg.x_axis.append(x_axis)
                 result_msg.y_axis.append(y_axis)
 
