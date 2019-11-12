@@ -217,8 +217,12 @@ class MaskRCNNNode(object):
 
     def getCalibrationMatrix(self):
         file_path = "config/realsense_intrinsic.xml"
-        camera_matrix = np.asarray(cv2.Load(file_path, cv2.CreateMemStorage(), 'camera_matrix'))
-        dist_coeffs = numpy.asarray(cv2.Load(file_path, cv2.CreateMemStorage(), 'distortion_coefficients'))
+        fs = cv2.FileStorage(file_path, cv2.FILE_STORAGE_READ)
+        self.camera_matrix = fs.getNode("camera_matrix").mat()
+        self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
+        self.tvec = np.array([-0.221303, -0.259659, 0.854517], dtype=np.float32)
+        self.rvec = np.array([[0.01391082878792294, 0.9998143798348266, 0.01333021822529676],[0.9998941380955942, -0.0138525840224244, -0.004451799408139552], [-0.00426631509639492, 0.01339073528237409, -0.9999012385051315]], dtype=np.float32)
+        self.marker_origin = np.array([0.25, -0.58, -0.116], dtype=np.float32)
 
         return camera_matrix, dist_coeffs
 
@@ -260,23 +264,32 @@ class MaskRCNNNode(object):
                 mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
                 cntr = (int(mean[0,0]), int(mean[0,1]))
 
-                undistorted_cntr = cv2.undistortPoints(image[cntr[1]][cntr[0]], self.camera_matrix, self.dist_coeffs)
+                np_cntr = np.array(cntr, dtype=self.camera_matrix.dtype)
+                np_cntr = np_cntr.reshape(-1, 1, 2)
+                undistorted_cntr = cv2.undistortPoints(np_cntr, self.camera_matrix, self.dist_coeffs)
+                undistorted_cntr = undistorted_cntr.reshape(2)
                 center = Point()
                 center.z = depth[cntr[1]][cntr[0]]
-                center.x = undistorted_cntr[0][0]
-                center.y = undistorted_cntr[0][1]
+                center.x = undistorted_cntr[0]
+                center.y = undistorted_cntr[1]
                 result_msg.centers.append(center)
 
-                undistorted_x_axis = cv2.undistortPoints(image[eigenvectors[0,1] * eigenvalues[0,0]][eigenvectors[0,0] * eigenvalues[0,0]], self.camera_matrix, self.dist_coeffs)
-                undistorted_y_axis = cv2.undistortPoints(image[eigenvectors[1,1] * eigenvalues[1,0]][eigenvectors[1,0] * eigenvalues[1,0]], self.camera_matrix, self.dist_coeffs)
+                np_x = np.array([eigenvectors[0,0] * eigenvalues[0,0], eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
+                np_x = np_x.reshape(-1, 1, 2)
+                undistorted_x_axis = cv2.undistortPoints(np_x, self.camera_matrix, self.dist_coeffs)
+                undistorted_x_axis = undistorted_x_axis.reshape(2)
+                np_y = np.array([eigenvectors[1,0] * eigenvalues[1,0], eigenvectors[1,1] * eigenvalues[1,0]], dtype=self.camera_matrix.dtype)
+                np_y = np_y.reshape(-1, 1, 2)
+                undistorted_y_axis = cv2.undistortPoints(np_y, self.camera_matrix, self.dist_coeffs)
+                undistorted_y_axis = undistorted_y_axis.reshape(2)
                 x_axis = Vector3()
-                x_axis.x = undistorted_x_axis[0][0]
-                x_axis.y = undistorted_x_axis[0][1]
-                x_axis.z = center.y
+                x_axis.x = undistorted_x_axis[0]
+                x_axis.y = undistorted_x_axis[1]
+                x_axis.z = center.z
                 y_axis = Vector3()
-                y_axis.x = undistorted_y_axis[0][0]
-                y_axis_y = undistorted_y_axis[0][1]
-                y_axis_z = center.y
+                y_axis.x = undistorted_y_axis[0]
+                y_axis_y = undistorted_y_axis[1]
+                y_axis_z = center.z
                 result_msg.x_axis.append(x_axis)
                 result_msg.y_axis.append(y_axis)
 
