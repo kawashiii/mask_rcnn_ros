@@ -143,10 +143,13 @@ class MaskRCNNNode(object):
 
         if (req.id == 1):
             print("Waiting frame...")
-            msg = rospy.wait_for_message("/camera/color/image_raw", Image)
+            # msg = rospy.wait_for_message("/camera/color/image_raw", Image)
+            image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture")
+            depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map")
             print("Acquired frame!")
 
-            np_image = self._cv_bridge.imgmsg_to_cv2(msg, 'bgr8')
+            np_image = self._cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+            np_depth = self._cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
             
             # Run detection
             t1 = time.time()
@@ -157,7 +160,7 @@ class MaskRCNNNode(object):
             print("Detection time: ", round(detection_time, 2), " s")
 
             result = results[0]
-            result_msg = self._build_result_msg(msg, result)
+            result_msg = self._build_result_msg(image_msg, result, np_image, np_depth)
             self._result_pub.publish(result_msg)
             
             # Visualize results
@@ -209,12 +212,21 @@ class MaskRCNNNode(object):
         self.drawAxis(img, cntr, p2, (255, 255, 0), 5)
         angle = atan2(eigenvectors[0,1], eigenvectors[0,0]) # orientation in radians
         
-        return angle               
+        return angle
+
+    def getCalibrationMatrix(self):
+        file_path = "config/realsense_intrinsic.xml"
+        camera_matrix = np.asarray(cv2.Load(file_path, cv2.CreateMemStorage(), 'camera_matrix'))
+        dist_coeffs = numpy.asarray(cv2.Load(file_path, cv2.CreateMemStorage(), 'distortion_coefficients'))
+
+        return camera_matrix, dist_coeffs
 
 
-    def _build_result_msg(self, msg, result):
+    def _build_result_msg(self, msg, result, image, depth):
         result_msg = Result()
         result_msg.header = msg.header
+        camera_matrix, dist_coeffs = getCalibrationMatrix()
+        
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             box = RegionOfInterest()
             box.x_offset = np.asscalar(x1)
@@ -237,8 +249,7 @@ class MaskRCNNNode(object):
             contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
             for j, c in enumerate(contours):
                 area = cv2.contourArea(c)
-                if area < 1e2 or 1e5 < area:
-                    continue
+                if area < 1e2 or 1e5 < area: continue
 
                 sz = len(c)
                 data_pts = np.empty((sz, 2), dtype=np.float64)
