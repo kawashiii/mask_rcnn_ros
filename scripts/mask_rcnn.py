@@ -6,6 +6,7 @@ import threading
 import numpy as np
 
 import rospy
+import roslib.packages
 #from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
@@ -26,7 +27,8 @@ from mrcnn import utils
 from mrcnn import model as modellib
 from mrcnn import visualize
 
-ROOT_DIR = os.path.abspath("src/mask_rcnn_ros")
+ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
+print(ROOT_DIR)
 MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
 TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
@@ -133,48 +135,52 @@ class MaskRCNNNode(object):
         self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1, latch=True)
         self.camera_matrix, self.dist_coeffs = getCalibrationMatrix()
 
-        self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._detect_objects)
+        self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._get_frame)
         print("Ready to detect objects. Please service call /mask_rcnn/detect_objects")
         rospy.spin()
 
-    def _detect_objects(self, req):
+    def _get_frame(self, req):
         res = DetectResponse()
-        res.message = "OK"
-        res.success = True
+        res.message = "NG"
+        res.success = False
 
         if (req.id == 1):
             print("Waiting frame...")
-            # msg = rospy.wait_for_message("/camera/color/image_raw", Image)
             image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture")
             depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map")
             print("Acquired frame!")
 
-            np_image = self._cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
-            np_depth = self._cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
-            
-            # Run detection
-            t1 = time.time()
-            results = self._model.detect([np_image], verbose=0)
-            t2 = time.time()            
-            # Print detection time
-            detection_time = t2 - t1
-            print("Detection time: ", round(detection_time, 2), " s")
+            self._detect_objects(image_msg, depth_msg)
 
-            result = results[0]
-            result_msg = self._build_result_msg(image_msg, result, np_image, np_depth)
-            self._result_pub.publish(result_msg)
-            
-            # Visualize results
-            if self._visualization:
-                vis_image = self._visualize(result, np_image)
-                cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
-                cv2.convertScaleAbs(vis_image, cv_result)
-                image_msg = self._cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-                self.vis_pub.publish(image_msg)
-                print("Published detected image!")
+            res.message = "OK"
+            res.success = True
 
-        
         return res
+
+    def _detect_objects(self, image_msg, depth_msg):
+        np_image = self._cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+        np_depth = self._cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
+        
+        # Run detection
+        t1 = time.time()
+        results = self._model.detect([np_image], verbose=0)
+        t2 = time.time()            
+        # Print detection time
+        detection_time = t2 - t1
+        print("Detection time: ", round(detection_time, 2), " s")
+
+        result = results[0]
+        result_msg = self._build_result_msg(image_msg, result, np_image, np_depth)
+        self._result_pub.publish(result_msg)
+        
+        # Visualize results
+        if self._visualization:
+            vis_image = self._visualize(result, np_image)
+            cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
+            cv2.convertScaleAbs(vis_image, cv_result)
+            image_msg = self._cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+            self.vis_pub.publish(image_msg)
+            print("Published detected image!")
 
     def drawAxis(self, img, p_, q_, colour, scale):
         p = list(p_)
@@ -216,7 +222,7 @@ class MaskRCNNNode(object):
         return angle
 
     def getCalibrationMatrix(self):
-        file_path = "config/realsense_intrinsic.xml"
+        file_path = os.path.join(ROOT_DIR, "config/realsense_intrinsic.xml")
         fs = cv2.FileStorage(file_path, cv2.FILE_STORAGE_READ)
         self.camera_matrix = fs.getNode("camera_matrix").mat()
         self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
