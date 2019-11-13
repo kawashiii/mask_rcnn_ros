@@ -28,7 +28,6 @@ from mrcnn import model as modellib
 from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
-print(ROOT_DIR)
 MODEL_PATH = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
 TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
@@ -133,7 +132,7 @@ class MaskRCNNNode(object):
     def run3(self):
         self._result_pub = rospy.Publisher('~result', Result, queue_size=1)
         self.vis_pub = rospy.Publisher('~visualization', Image, queue_size=1, latch=True)
-        self.camera_matrix, self.dist_coeffs = getCalibrationMatrix()
+        self.getCalibrationMatrix()
 
         self.detect_srv = rospy.Service('mask_rcnn/detect_objects', Detect, self._get_frame)
         print("Ready to detect objects. Please service call /mask_rcnn/detect_objects")
@@ -146,8 +145,8 @@ class MaskRCNNNode(object):
 
         if (req.id == 1):
             print("Waiting frame...")
-            image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture")
-            depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map")
+            image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image)
+            depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image)
             print("Acquired frame!")
 
             self._detect_objects(image_msg, depth_msg)
@@ -226,12 +225,10 @@ class MaskRCNNNode(object):
         fs = cv2.FileStorage(file_path, cv2.FILE_STORAGE_READ)
         self.camera_matrix = fs.getNode("camera_matrix").mat()
         self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
-        self.tvec = np.array([-0.221303, -0.259659, 0.854517], dtype=np.float32)
+        # self.tvec = np.array([-0.221303, -0.259659, 0.854517], dtype=np.float32)
+        self.tvec = np.array([0.259659, 0.221303, 0.854517], dtype=np.float32)
         self.rvec = np.array([[0.01391082878792294, 0.9998143798348266, 0.01333021822529676],[0.9998941380955942, -0.0138525840224244, -0.004451799408139552], [-0.00426631509639492, 0.01339073528237409, -0.9999012385051315]], dtype=np.float32)
-        self.marker_origin = np.array([0.25, -0.58, -0.116], dtype=np.float32)
-
-        return camera_matrix, dist_coeffs
-
+        self.marker_origin = np.array([0.24, -0.58, -0.100], dtype=np.float32)
 
     def _build_result_msg(self, msg, result, image, depth):
         result_msg = Result()
@@ -274,10 +271,20 @@ class MaskRCNNNode(object):
                 np_cntr = np_cntr.reshape(-1, 1, 2)
                 undistorted_cntr = cv2.undistortPoints(np_cntr, self.camera_matrix, self.dist_coeffs)
                 undistorted_cntr = undistorted_cntr.reshape(2)
+
+                z_camera = (depth[cntr[1], cntr[0]])/1000 + 0.02
+                x_camera = undistorted_cntr[0] * z_camera
+                y_camera = undistorted_cntr[1] * z_camera
+                xyz_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
+                print("The Center of Object (Camera Coordinate):", xyz_camera)
+
+                xyz_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_camera)
+                print("The Center of Object (World Coordinate):", xyz_world)
+
                 center = Point()
-                center.z = depth[cntr[1]][cntr[0]]
-                center.x = undistorted_cntr[0]
-                center.y = undistorted_cntr[1]
+                center.z = z_camera
+                center.x = x_camera
+                center.y = y_camera
                 result_msg.centers.append(center)
 
                 np_x = np.array([eigenvectors[0,0] * eigenvalues[0,0], eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
@@ -299,15 +306,15 @@ class MaskRCNNNode(object):
                 result_msg.x_axis.append(x_axis)
                 result_msg.y_axis.append(y_axis)
 
-            mask = Image()
-            mask.header = msg.header
-            mask.height = result['masks'].shape[0]
-            mask.width = result['masks'].shape[1]
-            mask.encoding = "mono8"
-            mask.is_bigendian = False
-            mask.step = mask.width
-            mask.data = (result['masks'][:, :, i] * 255).tobytes()
-            result_msg.masks.append(mask)
+            # mask = Image()
+            # mask.header = msg.header
+            # mask.height = result['masks'].shape[0]
+            # mask.width = result['masks'].shape[1]
+            # mask.encoding = "mono8"
+            # mask.is_bigendian = False
+            # mask.step = mask.width
+            # mask.data = (result['masks'][:, :, i] * 255).tobytes()
+            # result_msg.masks.append(mask)
         return result_msg
 
     def _visualize(self, result, image):
