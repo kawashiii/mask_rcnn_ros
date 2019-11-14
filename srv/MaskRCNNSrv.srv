@@ -1,0 +1,5 @@
+# int64 id
+---
+# string message
+# bool success
+MaskRCNNMsg detectedMaskRCNN

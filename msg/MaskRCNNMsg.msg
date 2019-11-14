@@ -1,5 +1,10 @@
 std_msgs/Header header
 
+uint32 count
+uint32[] ids
+float32[] areas
+geometry_msgs/Vector3[] axes
+
 # Bounding boxes in pixels
 sensor_msgs/RegionOfInterest[] boxes
 
@@ -19,7 +24,7 @@ sensor_msgs/Image[] masks
 geometry_msgs/Point[] centers
 
 # X axis of mask
-geometry_msgs/Vector3[] x_axis
+# geometry_msgs/Vector3[] x_axis
 
 # Y axis of mask
-geometry_msgs/Vector3[] y_axis
+# geometry_msgs/Vector3[] y_axis

@@ -52,7 +52,7 @@ find_package(catkin REQUIRED COMPONENTS
 ## Generate messages in the 'msg' folder
 add_message_files(
   FILES
-  Result.msg
+  MaskRCNNMsg.msg
 #   Message1.msg
 #   Message2.msg
 )
@@ -60,7 +60,7 @@ add_message_files(
 ## Generate services in the 'srv' folder
 add_service_files(
   FILES
-  Detect.srv
+  MaskRCNNSrv.srv
 )
 
 ## Generate actions in the 'action' folder
