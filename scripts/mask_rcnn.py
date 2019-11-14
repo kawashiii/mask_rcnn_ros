@@ -264,38 +264,41 @@ class MaskRCNNNode(object):
                 z_camera = (depth[cntr[1], cntr[0]])/1000 + 0.02
                 x_camera = undistorted_cntr[0] * z_camera
                 y_camera = undistorted_cntr[1] * z_camera
-                xyz_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
-                print("The Center of Object (Camera Coordinate):", xyz_camera)
+                xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
+                print("The Center of Object (Camera Coordinate):", xyz_center_camera)
 
-                xyz_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_camera)
-                print("The Center of Object (World Coordinate):", xyz_world)
+                xyz_center_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
+                print("The Center of Object (World Coordinate):", xyz_center_world)
 
                 center = Point()
-                center.x = xyz_world[0]
-                center.y = xyz_world[1]
-                center.z = xyz_world[2]
+                center.x = xyz_center_world[0]
+                center.y = xyz_center_world[1]
+                center.z = xyz_center_world[2]                
                 result_msg.centers.append(center)
 
                 np_x = np.array([cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
                 np_x = np_x.reshape(-1, 1, 2)
                 undistorted_x_axis = cv2.undistortPoints(np_x, self.camera_matrix, self.dist_coeffs)
                 undistorted_x_axis = undistorted_x_axis.reshape(2)
-                xyz_camera = np.array([undistorted_x_axis[0] * z_camera, undistorted_x_axis[1] * z_camera, z_camera], dtype=np.float32)
-                xyz_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_camera) - xyz_world
+                xyz_axis_camera = np.array([undistorted_x_axis[0] * z_camera, undistorted_x_axis[1] * z_camera, z_camera], dtype=np.float32)
+                xyz_axis_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_axis_camera) - xyz_center_world
                 
                 axe = Vector3()
-                axe.x = xyz_world[0]
-                axe.y = xyz_world[1]
-                axe.z = xyz_world[2]
+                axe.x = xyz_axis_world[0]
+                axe.y = xyz_axis_world[1]
+                axe.z = xyz_axis_world[2]
                 result_msg.axes.append(axe)
 
                 axis.id = i
                 axis.text = str(axis.id)
-                start_point = center
-                end_point = center
-                end_point.x += axe.x
-                end_point.y += axe.y
-                end_point.z += axe.z
+                start_point = Point()
+                start_point.x = xyz_center_world[0]
+                start_point.y = xyz_center_world[1]
+                start_point.z = xyz_center_world[2]
+                end_point = Point()
+                end_point.x = xyz_center_world[0] + xyz_axis_world[0]
+                end_point.y = xyz_center_world[1] + xyz_axis_world[1]
+                end_point.z = xyz_center_world[2] + xyz_axis_world[2]
                 axis.points.append(start_point)
                 axis.points.append(end_point)
                 axes_msg.markers.append(axis)
