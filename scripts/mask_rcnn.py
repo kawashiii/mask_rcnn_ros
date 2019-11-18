@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import sys
+import copy
 import time
 import threading
 import numpy as np
@@ -206,21 +207,6 @@ class MaskRCNNNode(object):
         result_msg.count = 0
 
         axes_msg = MarkerArray()
-        axis = Marker()
-
-        axis.header.frame_id = "base_link"
-        axis.header.stamp = rospy.Time()
-        axis.ns = "mask_rcnn_detected_axis"
-        axis.type = Marker.ARROW
-        axis.action = 0
-        axis.frame_locked = 1
-        axis.scale.x = 0.01
-        axis.scale.y = 0.02
-        axis.scale.z = 0.0
-        axis.color.a = 1.0
-        axis.color.r = 0.0
-        axis.color.g = 0.0
-        axis.color.b = 1.0
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             box = RegionOfInterest()
@@ -289,6 +275,21 @@ class MaskRCNNNode(object):
                 axe.z = xyz_axis_world[2]
                 result_msg.axes.append(axe)
 
+                axis = Marker()
+
+                axis.header.frame_id = "base_link"
+                axis.header.stamp = rospy.Time()
+                axis.ns = "mask_rcnn_detected_axis_pp"
+                axis.type = Marker.ARROW
+                axis.action = Marker.ADD
+                axis.frame_locked = 1
+                axis.scale.x = 0.01
+                axis.scale.y = 0.02
+                axis.scale.z = 0.0
+                axis.color.a = 1.0
+                axis.color.r = 0.0
+                axis.color.g = 0.0
+                axis.color.b = 1.0
                 axis.id = i
                 axis.text = str(axis.id)
                 start_point = Point()
@@ -299,8 +300,7 @@ class MaskRCNNNode(object):
                 end_point.x = xyz_center_world[0] + xyz_axis_world[0]
                 end_point.y = xyz_center_world[1] + xyz_axis_world[1]
                 end_point.z = xyz_center_world[2] + xyz_axis_world[2]
-                axis.points.append(start_point)
-                axis.points.append(end_point)
+                axis.points = [start_point, end_point]
                 axes_msg.markers.append(axis)
 
                 # np_y = np.array([eigenvectors[1,0] * eigenvalues[1,0], eigenvectors[1,1] * eigenvalues[1,0]], dtype=self.camera_matrix.dtype)
