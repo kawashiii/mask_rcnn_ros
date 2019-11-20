@@ -6,13 +6,13 @@ Most of core algorithm code is based on [Mask R-CNN implementation by Matterport
 - ROS kinetic
 
 ## Installation
-1. Docker Build  
+**1. Docker Build**  
 Copy docker/Dockerfile_cpu(gpu) - select one to suit your environment - to {ANY_FOLDER}/Dockerfile.  
 After the copy, build Dockerfile.  
 ```
 sudo docker build -t mrcnn_ros:dev .
 ```
-2. Docker Run  
+**2. Docker Run**  
 ```
 # cpu
 sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-unix/:/tmp/.X11-unix --name mrcnn_ros mrcnn_ros:dev
@@ -22,7 +22,7 @@ sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-uni
 sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-unix/:/tmp/.X11-unix --gpus all --name mrcnn_ros mrcnn_ros:dev
 ```
 
-3. Setting Catkin
+**3. Setting Catkin**
 ```
 cd /root/catkin_build_ws
 catkin config -DPYTHON_EXECUTABLE=/usr/bin/python3 -DPYTHON_INCLUDE_DIR=/usr/include/python3.5m -DPYTHON_LIBRARY=/usr/lib/x86_64-linux-gnu/libpython3.5m.so
@@ -47,4 +47,9 @@ rosrun mask_rcnn_ros mask_rcnn.py
 ```
 
 ## ROS Interfaces
+### Topics Published
+- /mask_rcnn/MaskRCNNMsg: MaskRCNNMsg
+- /mask_rcnn/visualization: sensor_msg/Image
+### Service
+- /mask_rcnn/MaskRCNNSrv
 
