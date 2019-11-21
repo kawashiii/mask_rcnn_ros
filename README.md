@@ -4,6 +4,7 @@ Most of core algorithm code is based on [Mask R-CNN implementation by Matterport
 
 ## Requirements
 - ROS kinetic
+- Python3 (> 3.5)
 
 ## Installation
 **1. Docker Build**  
