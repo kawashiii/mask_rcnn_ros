@@ -130,8 +130,8 @@ class MaskRCNNNode(object):
         depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image)
         print("Acquired frame!")
 
-        self.detect_objects(image_msg, depth_msg)
-        res.detectedMaskRCNN = self.result_msg
+        result_msg = self.detect_objects(image_msg, depth_msg)
+        res.detectedMaskRCNN = result_msg
 
         return res
 
@@ -148,9 +148,9 @@ class MaskRCNNNode(object):
         print("Inference time: ", round(inference_time, 2), " s")
 
         result = results[0]
-        self.result_msg, self.axes_msg = self.build_result_msg(image_msg, result, np_image, np_depth)
-        self.result_pub.publish(self.result_msg)
-        self.marker_pub.publish(self.axes_msg)
+        result_msg, axes_msg = self.build_result_msg(image_msg, result, np_image, np_depth)
+        self.result_pub.publish(result_msg)
+        self.marker_pub.publish(axes_msg)
         
         # Visualize results        
         vis_image = self.visualize(result, np_image)
@@ -158,17 +158,21 @@ class MaskRCNNNode(object):
         cv2.convertScaleAbs(vis_image, cv_result)
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
         self.visualization_pub.publish(image_msg)
-        print("Published detected image!")
+
+        print("Published result and image msg!")
+        return result_msg
 
     def build_result_msg(self, msg, result, image, depth):
         result_msg = MaskRCNNMsg()
         result_msg.header = msg.header
         result_msg.header.frame_id = "base_link"
-        result_msg.count = 0
+        result_msg.count = len(result['class_ids'])
 
         axes_msg = MarkerArray()
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
+            result_msg.ids.append(i)
+
             box = RegionOfInterest()
             box.x_offset = np.asscalar(x1)
             box.y_offset = np.asscalar(y1)
@@ -185,111 +189,104 @@ class MaskRCNNNode(object):
             score = result['scores'][i]
             result_msg.scores.append(score)
 
-            m = result['masks'][:,:,i].astype(np.uint8)
-            ret, thresh = cv2.threshold(m, 0.5, 1.0, cv2.THRESH_BINARY)
-            contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for j, c in enumerate(contours):
-                area = cv2.contourArea(c)
-                if area < 1e2 or 1e5 < area: continue
+            mask = result['masks'][:,:,i].astype(np.uint8)
+            area, center, x_axis = self.estimate_object_attribute(mask, depth)
+            if (area, center, x_axis) != (0, 0, 0):
                 result_msg.areas.append(area)
-
-                sz = len(c)
-                data_pts = np.empty((sz, 2), dtype=np.float64)
-                for k in range(data_pts.shape[0]):
-                    data_pts[k,0] = c[k,0,0]
-                    data_pts[k,1] = c[k,0,1]
-                mean = np.empty((0))
-                mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
-                cntr = (int(mean[0,0]), int(mean[0,1]))
-
-                np_cntr = np.array(cntr, dtype=self.camera_matrix.dtype)
-                np_cntr = np_cntr.reshape(-1, 1, 2)
-                undistorted_cntr = cv2.undistortPoints(np_cntr, self.camera_matrix, self.dist_coeffs)
-                undistorted_cntr = undistorted_cntr.reshape(2)
-
-                z_camera = (depth[cntr[1], cntr[0]])/1000 + 0.02
-                x_camera = undistorted_cntr[0] * z_camera
-                y_camera = undistorted_cntr[1] * z_camera
-                xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
-                print("The Center of Object (Camera Coordinate):", xyz_center_camera)
-
-                xyz_center_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
-                xyz_center_camera_tmp = np.array([x_camera, y_camera, z_camera, 1.0], dtype=np.float32)
-                tmp = np.dot(self.robot_camera, xyz_center_camera_tmp)
-                print("The Center of Object (World Coordinate):", xyz_center_world)
-                print("The Center of Object (World Coordinate) tmp:", tmp)
-
-                center = Point()
-                center.x = xyz_center_world[0]
-                center.y = xyz_center_world[1]
-                center.z = xyz_center_world[2]                
                 result_msg.centers.append(center)
+                result_msg.axes.append(x_axis)            
 
-                np_x = np.array([cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
-                np_x = np_x.reshape(-1, 1, 2)
-                undistorted_x_axis = cv2.undistortPoints(np_x, self.camera_matrix, self.dist_coeffs)
-                undistorted_x_axis = undistorted_x_axis.reshape(2)
-                xyz_axis_camera = np.array([undistorted_x_axis[0] * z_camera, undistorted_x_axis[1] * z_camera, z_camera], dtype=np.float32)
-                xyz_axis_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_axis_camera) - xyz_center_world
-                
-                axe = Vector3()
-                axe.x = xyz_axis_world[0]
-                axe.y = xyz_axis_world[1]
-                axe.z = xyz_axis_world[2]
-                result_msg.axes.append(axe)
+            x_axis_marker = self.build_marker_msg(i, center, x_axis)
+            axes_msg.markers.append(x_axis_marker)
 
-                axis = Marker()
-
-                axis.header.frame_id = "base_link"
-                axis.header.stamp = rospy.Time()
-                axis.ns = "mask_rcnn_detected_axis_pp"
-                axis.type = Marker.ARROW
-                axis.action = Marker.ADD
-                axis.frame_locked = 1
-                axis.scale.x = 0.01
-                axis.scale.y = 0.02
-                axis.scale.z = 0.0
-                axis.color.a = 1.0
-                axis.color.r = 0.0
-                axis.color.g = 0.0
-                axis.color.b = 1.0
-                axis.id = i
-                axis.text = str(axis.id)
-                start_point = Point()
-                start_point.x = xyz_center_world[0]
-                start_point.y = xyz_center_world[1]
-                start_point.z = xyz_center_world[2]
-                end_point = Point()
-                end_point.x = xyz_center_world[0] + xyz_axis_world[0]
-                end_point.y = xyz_center_world[1] + xyz_axis_world[1]
-                end_point.z = xyz_center_world[2] + xyz_axis_world[2]
-                axis.points = [start_point, end_point]
-                axes_msg.markers.append(axis)
-
-                # np_y = np.array([eigenvectors[1,0] * eigenvalues[1,0], eigenvectors[1,1] * eigenvalues[1,0]], dtype=self.camera_matrix.dtype)
-                # np_y = np_y.reshape(-1, 1, 2)
-                # undistorted_y_axis = cv2.undistortPoints(np_y, self.camera_matrix, self.dist_coeffs)
-                # undistorted_y_axis = undistorted_y_axis.reshape(2)
-                # x_axis = Vector3()
-                # x_axis.x = undistorted_x_axis[0]
-                # x_axis.y = undistorted_x_axis[1]
-                # x_axis.z = center.z
-                # y_axis = Vector3()
-                # y_axis.x = undistorted_y_axis[0]
-                # y_axis_y = undistorted_y_axis[1]
-                # y_axis_z = center.z
-                # result_msg.x_axis.append(x_axis)
-                # result_msg.y_axis.append(y_axis)
-            
-            result_msg.ids.append(i)
-            result_msg.count += 1
         return result_msg, axes_msg
 
-    def estimate_object_pose(self, mask):
-        print("test")
+    def estimate_object_attribute(self, mask, depth):
+        ret, thresh = cv2.threshold(mask, 0.5, 1.0, cv2.THRESH_BINARY)
+        contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-    def build_marker_msg(self):
-        print("test")
+        # Because of one mask, the number of contours should be one.
+        if len(contours) != 1:
+            print("Many contours are detected")
+            return (0, 0, 0)
+
+        # Check Contour Area        
+        contour = contours[0]        
+        area = cv2.contourArea(contour)
+        if area < 1e2 or 1e5 < area:
+            print("The area of contours is too small or big")
+            return (0, 0, 0)
+        # result_msg.areas.append(area)
+
+        # Calculate PCA for x-axis and y-axis of object        
+        sz = len(contour)
+        data_pts = np.empty((sz, 2), dtype=np.float64)
+        for k in range(data_pts.shape[0]):
+            data_pts[k,0] = contour[k,0,0]
+            data_pts[k,1] = contour[k,0,1]
+        mean = np.empty((0))
+        mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
+        cntr = (int(mean[0,0]), int(mean[0,1]))
+
+        # Calculate center point on image coordinate by camera intrinsic parameter
+        np_cntr = np.array(cntr, dtype=self.camera_matrix.dtype)
+        np_cntr = np_cntr.reshape(-1, 1, 2)
+        undistorted_cntr = cv2.undistortPoints(np_cntr, self.camera_matrix, self.dist_coeffs)
+        undistorted_cntr = undistorted_cntr.reshape(2)
+
+        # Calculate center point on camera coordiante
+        z_camera = (depth[cntr[1], cntr[0]])/1000 + 0.02
+        x_camera = undistorted_cntr[0] * z_camera
+        y_camera = undistorted_cntr[1] * z_camera
+        xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
+        print("The Center of Object (Camera Coordinate):", xyz_center_camera)
+
+        # Calculate center point on world(robot) coordinate
+        xyz_center_camera_homogeneous = np.append(xyz_center_camera, 1.0)
+        xyz_center_world = np.dot(self.robot_camera, xyz_center_camera_homogeneous)
+        xyz_center_world_tmp = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
+        print("The Center of Object (World Coordinate):", xyz_center_world)
+        print("The Center of Object (World Coordinate):", xyz_center_world_tmp)
+
+        center = Point(xyz_center_world[0], xyz_center_world[1], xyz_center_world[2])
+
+        # Calculate x-axis
+        np_x = np.array([cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
+        np_x = np_x.reshape(-1, 1, 2)
+        undistorted_x_axis = cv2.undistortPoints(np_x, self.camera_matrix, self.dist_coeffs)
+        undistorted_x_axis = undistorted_x_axis.reshape(2)
+        xyz_axis_camera = np.array([undistorted_x_axis[0] * z_camera, undistorted_x_axis[1] * z_camera, z_camera], dtype=np.float32)
+        xyz_axis_camera_homogeneous = np.append(xyz_axis_camera, 1.0)
+        xyz_axis_world = np.dot(self.robot_camera, xyz_axis_camera_homogeneous) - xyz_center_world
+        # xyz_axis_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_axis_camera) - xyz_center_world
+        
+        x_axis = Vector3(xyz_axis_world[0], xyz_axis_world[1], xyz_axis_world[2])
+
+        return area, center, x_axis
+
+    def build_marker_msg(self, id, center, x_axis):
+        x_axis_marker = Marker()
+
+        x_axis_marker.header.frame_id = "base_link"
+        x_axis_marker.header.stamp = rospy.Time()
+        x_axis_marker.ns = "mask_rcnn_detected_x_axis"
+        x_axis_marker.type = Marker.ARROW
+        x_axis_marker.action = Marker.ADD
+        x_axis_marker.frame_locked = 1
+        x_axis_marker.scale.x = 0.01
+        x_axis_marker.scale.y = 0.02
+        x_axis_marker.scale.z = 0.0
+        x_axis_marker.color.a = 1.0
+        x_axis_marker.color.r = 0.0
+        x_axis_marker.color.g = 0.0
+        x_axis_marker.color.b = 1.0
+        x_axis_marker.id = id
+        x_axis_marker.text = str(x_axis_marker.id)
+        start_point = center
+        end_point = Point(start_point.x + x_axis.x, start_point.y + x_axis.y, start_point.z + x_axis.z)
+        x_axis_marker.points = [start_point, end_point]
+
+        return x_axis_marker
 
     def visualize(self, result, image):
         rois = result['rois']
