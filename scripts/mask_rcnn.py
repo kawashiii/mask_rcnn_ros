@@ -167,11 +167,12 @@ class MaskRCNNNode(object):
         result_msg = MaskRCNNMsg()
         result_msg.header = msg.header
         result_msg.header.frame_id = "base_link"
-        result_msg.count = len(result['class_ids'])
+        result_msg.count = 0
 
         axes_msg = MarkerArray()
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
+            print("*Object '" + self.class_names[result['class_ids'][i]] + "'")
             mask = result['masks'][:,:,i].astype(np.uint8)
             area, center, x_axis = self.estimate_object_attribute(mask, depth)
             if (area, center, x_axis) == (0, 0, 0):
@@ -185,6 +186,7 @@ class MaskRCNNNode(object):
             axes_msg.markers.append(x_axis_marker)
 
             result_msg.ids.append(i)
+            result_msg.count += 1
 
             box = RegionOfInterest()
             box.x_offset = np.asscalar(x1)
@@ -210,14 +212,14 @@ class MaskRCNNNode(object):
 
         # Because of one mask, the number of contours should be one.
         if len(contours) != 1:
-            print("Many contours are detected")
+            print(" Inferenced mask is not clearly. Skip this object.")
             return (0, 0, 0)
 
         # Check Contour Area        
         contour = contours[0]        
         area = cv2.contourArea(contour)
         if area < 1e2 or 1e5 < area:
-            print("The area of contours is too small or big")
+            print(" The area of contours is too small or big")
             return (0, 0, 0)
         # result_msg.areas.append(area)
 
@@ -237,18 +239,24 @@ class MaskRCNNNode(object):
         undistorted_cntr = cv2.undistortPoints(np_cntr, self.camera_matrix, self.dist_coeffs)
         undistorted_cntr = undistorted_cntr.reshape(2)
 
+        # Check center point of Depth Value
+        center_depth = self.get_depth(depth, cntr[0], cntr[1])
+        if center_depth == 0.0:
+            print(" Depth value around center point is all 0")
+            return (0, 0, 0)
+
         # Calculate center point on camera coordiante
-        z_camera = (depth[cntr[1], cntr[0]])/1000 + 0.02
+        z_camera = center_depth + 0.02 # 0.02 means adjustment
         x_camera = undistorted_cntr[0] * z_camera
         y_camera = undistorted_cntr[1] * z_camera
         xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
-        print("The Center of Object (Camera Coordinate):", xyz_center_camera)
+        print(" The Center of Object (Camera Coordinate):", xyz_center_camera)
 
         # Calculate center point on world(robot) coordinate
         xyz_center_camera_homogeneous = np.append(xyz_center_camera, 1.0)
         xyz_center_world = np.dot(self.robot_camera, xyz_center_camera_homogeneous)
         # xyz_center_world_tmp = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
-        print("The Center of Object (World Coordinate):", xyz_center_world)
+        print(" The Center of Object (World Coordinate):", xyz_center_world)
         # print("The Center of Object Tmp (World Coordinate):", xyz_center_world_tmp)
 
         center = Point(xyz_center_world[0], xyz_center_world[1], xyz_center_world[2])
@@ -266,6 +274,32 @@ class MaskRCNNNode(object):
         x_axis = Vector3(xyz_axis_world[0], xyz_axis_world[1], xyz_axis_world[2])
 
         return area, center, x_axis
+
+    def get_depth(self, depth, x, y):
+        value = depth[y, x] / 1000
+        height, width = depth.shape
+        if value:
+            return value
+        else:
+            # Consider the depth value of 10 * 10 pixels around (x, y)
+            region = 10
+            rect_x_min = x - int(region / 2)
+            rect_x_max = x + int(region / 2)
+            rect_y_min = y - int(region / 2)
+            rect_y_max = y + int(region / 2)
+            if rect_x_min >= 0 and rect_x_max <= width and rect_y_min >= 0 and rect_y_max <= height:
+                depth_array = []
+                for h in range(rect_y_max - rect_y_min):
+                    for w in range(rect_x_max - rect_x_min):
+                        if depth[rect_y_min + h, rect_x_min + w] == 0:
+                            continue
+                        depth_array.append(depth[rect_y_min + h, rect_x_min + w])
+                if len(depth_array) == 0:
+                    return 0
+                value = sum(depth_array) / len(depth_array) / 1000
+                # print("Around " + str(region) + " * " + str(region) + " pixels Depth :")
+                # print(depth_array)
+                return value
 
     def build_marker_msg(self, id, center, x_axis):
         x_axis_marker = Marker()
