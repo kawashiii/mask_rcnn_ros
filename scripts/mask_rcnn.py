@@ -118,16 +118,17 @@ class MaskRCNNNode(object):
         res = MaskRCNNSrvResponse()
 
         print("Waiting frame...")
-        rospy.wait_for_service('/phoxi_camera/get_calibrated_frame')
-        try:
-            srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_calibrated_frame', GetCalibratedFrame)
-            resp = srvGetCalibratedFrame(-1, "/camera/color/image_raw")
-            print("Servce call for Phoxi Success")
-        except rospy.ServiceException:
-            print("Service call failed")
+        # rospy.wait_for_service('/phoxi_camera/get_calibrated_frame')
+        # try:
+        #     srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_calibrated_frame', GetCalibratedFrame)
+        #     resp = srvGetCalibratedFrame(-1, "/camera/color/image_raw")
+        #     print("Servce call for Phoxi Success")
+        # except rospy.ServiceException:
+        #     print("Service call failed")
 
-        image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image)
-        depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image)
+        timeout = 10
+        image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image, timeout)
+        depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image, timeout)
         print("Acquired frame!")
 
         result_msg = self.detect_objects(image_msg, depth_msg)
@@ -171,6 +172,18 @@ class MaskRCNNNode(object):
         axes_msg = MarkerArray()
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
+            mask = result['masks'][:,:,i].astype(np.uint8)
+            area, center, x_axis = self.estimate_object_attribute(mask, depth)
+            if (area, center, x_axis) == (0, 0, 0):
+                continue
+
+            result_msg.areas.append(area)
+            result_msg.centers.append(center)
+            result_msg.axes.append(x_axis)            
+
+            x_axis_marker = self.build_marker_msg(i, center, x_axis)
+            axes_msg.markers.append(x_axis_marker)
+
             result_msg.ids.append(i)
 
             box = RegionOfInterest()
@@ -188,16 +201,6 @@ class MaskRCNNNode(object):
 
             score = result['scores'][i]
             result_msg.scores.append(score)
-
-            mask = result['masks'][:,:,i].astype(np.uint8)
-            area, center, x_axis = self.estimate_object_attribute(mask, depth)
-            if (area, center, x_axis) != (0, 0, 0):
-                result_msg.areas.append(area)
-                result_msg.centers.append(center)
-                result_msg.axes.append(x_axis)            
-
-            x_axis_marker = self.build_marker_msg(i, center, x_axis)
-            axes_msg.markers.append(x_axis_marker)
 
         return result_msg, axes_msg
 
@@ -244,9 +247,9 @@ class MaskRCNNNode(object):
         # Calculate center point on world(robot) coordinate
         xyz_center_camera_homogeneous = np.append(xyz_center_camera, 1.0)
         xyz_center_world = np.dot(self.robot_camera, xyz_center_camera_homogeneous)
-        xyz_center_world_tmp = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
+        # xyz_center_world_tmp = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
         print("The Center of Object (World Coordinate):", xyz_center_world)
-        print("The Center of Object (World Coordinate):", xyz_center_world_tmp)
+        # print("The Center of Object Tmp (World Coordinate):", xyz_center_world_tmp)
 
         center = Point(xyz_center_world[0], xyz_center_world[1], xyz_center_world[2])
 
