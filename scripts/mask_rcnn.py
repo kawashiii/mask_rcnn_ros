@@ -15,7 +15,7 @@ from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from std_msgs.msg import UInt8MultiArray
-from phoxi_camera.srv import *
+# from phoxi_camera.srv import *
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse
 
@@ -31,7 +31,8 @@ from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
-CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic.xml")
+# CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic.xml")
+CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2019_11_26.xml")
 TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
 class InferenceConfig(lab.LabConfig):
@@ -73,18 +74,26 @@ class MaskRCNNNode(object):
         self.marker_origin = np.array([0.24, -0.58, -0.100], dtype=np.float32)
 
         # Marker position and pose from camera coordinate
-        tvec_from_camera = np.array([-0.221303, -0.259659, 0.854517], dtype=np.float32)
+        # ur5e
+        # tvec_from_camera = np.array([-0.221303, -0.259659, 0.854517], dtype=np.float32)
+        # rvec_from_camera = np.array([
+        #     [0.01391082878792294, 0.9998143798348266, 0.01333021822529676],
+        #     [0.9998941380955942, -0.0138525840224244, -0.004451799408139552],
+        #     [-0.00426631509639492, 0.01339073528237409, -0.9999012385051315]
+        # ], dtype=np.float32)
+        # yamaha
+        tvec_from_camera = np.array([-0.00210478, 0.181383, 1.2632], dtype=np.float32)
         rvec_from_camera = np.array([
-            [0.01391082878792294, 0.9998143798348266, 0.01333021822529676],
-            [0.9998941380955942, -0.0138525840224244, -0.004451799408139552],
-            [-0.00426631509639492, 0.01339073528237409, -0.9999012385051315]
+            [0.01867525514088364, 0.9997222614892132, -0.01437479489649772],
+            [0.9993184057691136, -0.01912174444141923, -0.03157661762435001],
+            [-0.03184271873600399, -0.01377529572860523, -0.9993979600194756]
         ], dtype=np.float32)
 
         # Camera position and pose from marker coordinate
         tvec_from_marker = np.dot(rvec_from_camera, tvec_from_camera) * -1
         rvec_from_marker = rvec_from_camera.T
 
-        # Homogeneous coordinate transformation from camera to marker
+        # Homogeneous transformation matrix from camera to marker coordinate
         marker_camera = np.array([
             np.append(rvec_from_marker[0], tvec_from_marker[0]),
             np.append(rvec_from_marker[1], tvec_from_marker[1]),
@@ -92,13 +101,22 @@ class MaskRCNNNode(object):
             [0.0, 0.0, 0.0, 1.0]
         ])
 
-        # Homogeneous coordinate transformation from marker to robot
+        # Homogeneous transformation matrix from marker to robot coordinate
+        # ur5e
+        # robot_marker = np.array([
+        #     [1.0, 0.0, 0.0, 0.24],
+        #     [0.0, 1.0, 0.0, -0.58],
+        #     [0.0, 0.0, 1.0, -0.1],
+        #     [0.0, 0.0, 0.0, 1.0]
+        # ])
+        # yamaha
         robot_marker = np.array([
-            [1.0, 0.0, 0.0, 0.24],
-            [0.0, 1.0, 0.0, -0.58],
-            [0.0, 0.0, 1.0, -0.1],
+            [0.0, 1.0, 0.0, 0.661],
+            [1.0, 0.0, 0.0, 0.851],
+            [0.0, 0.0, -1.0, -0.008],
             [0.0, 0.0, 0.0, 1.0]
         ])
+        
 
         self.robot_camera = np.dot(robot_marker, marker_camera)
 
