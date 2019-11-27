@@ -122,7 +122,14 @@ class MaskRCNNNode(object):
         ])
         
 
-        self.robot_camera = np.dot(robot_marker, marker_camera)
+        # self.robot_camera = np.dot(robot_marker, marker_camera)
+        self.robot_camera = np.array([
+             [1.0, 0.0, 0.0, 0.0],
+             [0.0, 1.0, 0.0, 0.0],
+             [0.0, 0.0, 1.0, 0.0],
+             [0.0, 0.0, 0.0, 1.0]
+        ])
+
 
 
     def run(self):
@@ -188,7 +195,8 @@ class MaskRCNNNode(object):
     def build_result_msg(self, msg, result, image, depth):
         result_msg = MaskRCNNMsg()
         result_msg.header = msg.header
-        result_msg.header.frame_id = "base_link"
+        # result_msg.header.frame_id = "base_link"
+        result_msg.header.frame_id = "realsense_sensor"
         result_msg.count = 0
 
         axes_msg = MarkerArray()
@@ -327,7 +335,7 @@ class MaskRCNNNode(object):
     def build_marker_msg(self, id, center, x_axis):
         x_axis_marker = Marker()
 
-        x_axis_marker.header.frame_id = "base_link"
+        x_axis_marker.header.frame_id = "realsense_sensor"
         x_axis_marker.header.stamp = rospy.Time()
         x_axis_marker.ns = "mask_rcnn_detected_x_axis"
         x_axis_marker.type = Marker.ARROW
