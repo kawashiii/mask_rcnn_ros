@@ -35,6 +35,17 @@ MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
 TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
+#REGION_X_OFFSET = 600
+#REGION_Y_OFFSET = 250
+#REGION_WIDTH    = 700
+#REGION_HEIGHT   = 450
+
+REGION_X_OFFSET = 500
+REGION_Y_OFFSET = 100
+REGION_WIDTH    = 900
+REGION_HEIGHT   = 600
+
+
 class InferenceConfig(lab.LabConfig):
     # Set batch size to 1 since we'll be running inference on
     # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
@@ -60,6 +71,7 @@ class MaskRCNNNode(object):
         self.set_coordinate_trasformation()
 
         self.class_names = lab.class_names
+        self.except_ids = []
         # self.publish_rate = 100
         # self.class_colors = visualize.random_colors(len(CLASS_NAMES))
 
@@ -123,13 +135,7 @@ class MaskRCNNNode(object):
         
 
         # self.robot_camera = np.dot(robot_marker, marker_camera)
-        self.robot_camera = np.array([
-             [1.0, 0.0, 0.0, 0.0],
-             [0.0, 1.0, 0.0, 0.0],
-             [0.0, 0.0, 1.0, 0.0],
-             [0.0, 0.0, 0.0, 1.0]
-        ])
-
+        self.robot_camera = np.eye(4)
 
 
     def run(self):
@@ -156,8 +162,10 @@ class MaskRCNNNode(object):
         #     print("Service call failed")
 
         timeout = 10
-        image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image, timeout)
-        depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image, timeout)
+        # image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image, timeout)
+        image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
+        # depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image, timeout)
+        depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
         print("Acquired frame!")
 
         result_msg = self.detect_objects(image_msg, depth_msg)
@@ -167,6 +175,7 @@ class MaskRCNNNode(object):
 
     def detect_objects(self, image_msg, depth_msg):
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+        np_image = np_image[REGION_Y_OFFSET:REGION_Y_OFFSET + REGION_HEIGHT, REGION_X_OFFSET:REGION_X_OFFSET + REGION_WIDTH]
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
         
         # Run inference
@@ -178,7 +187,8 @@ class MaskRCNNNode(object):
         print("Inference time: ", round(inference_time, 2), " s")
 
         result = results[0]
-        result_msg, axes_msg = self.build_result_msg(image_msg, result, np_image, np_depth)
+        # result_msg, axes_msg = self.build_result_msg(image_msg, result, np_image, np_depth)
+        result_msg, axes_msg = self.build_result_msg(image_msg, result, np_depth)
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
         
@@ -192,7 +202,7 @@ class MaskRCNNNode(object):
         print("Published result and image msg!")
         return result_msg
 
-    def build_result_msg(self, msg, result, image, depth):
+    def build_result_msg(self, msg, result, depth):
         result_msg = MaskRCNNMsg()
         result_msg.header = msg.header
         # result_msg.header.frame_id = "base_link"
@@ -206,6 +216,7 @@ class MaskRCNNNode(object):
             mask = result['masks'][:,:,i].astype(np.uint8)
             area, center, x_axis = self.estimate_object_attribute(mask, depth)
             if (area, center, x_axis) == (0, 0, 0):
+                self.except_ids.append(i)
                 continue
 
             result_msg.areas.append(area)
@@ -215,7 +226,8 @@ class MaskRCNNNode(object):
             x_axis_marker = self.build_marker_msg(i, center, x_axis)
             axes_msg.markers.append(x_axis_marker)
 
-            result_msg.ids.append(i)
+            # result_msg.ids.append(i)
+            result_msg.ids.append(result_msg.count)
             result_msg.count += 1
 
             box = RegionOfInterest()
@@ -251,7 +263,6 @@ class MaskRCNNNode(object):
         if area < 1e2 or 1e5 < area:
             print(" The area of contours is too small or big")
             return (0, 0, 0)
-        # result_msg.areas.append(area)
 
         # Calculate PCA for x-axis and y-axis of object        
         sz = len(contour)
@@ -261,7 +272,8 @@ class MaskRCNNNode(object):
             data_pts[k,1] = contour[k,0,1]
         mean = np.empty((0))
         mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
-        cntr = (int(mean[0,0]), int(mean[0,1]))
+        # cntr = (int(mean[0,0]), int(mean[0,1]))
+        cntr = (int(mean[0,0]) + REGION_X_OFFSET, int(mean[0,1]) + REGION_Y_OFFSET)
 
         # Calculate center point on image coordinate by camera intrinsic parameter
         np_cntr = np.array(cntr, dtype=self.camera_matrix.dtype)
@@ -271,13 +283,15 @@ class MaskRCNNNode(object):
 
         # Check center point of Depth Value
         # center_depth = self.get_depth(depth, cntr[0], cntr[1])
-        center_depth = 1.28
+        # center_depth = 1.46
+        center_depth = self.get_depth(depth, cntr[0] + REGION_X_OFFSET, cntr[1] + REGION_Y_OFFSET)
         if center_depth == 0.0:
             print(" Depth value around center point is all 0")
             return (0, 0, 0)
 
         # Calculate center point on camera coordiante
-        z_camera = center_depth + 0.02 # 0.02 means adjustment
+        # z_camera = center_depth + 0.02 # 0.02 means adjustment
+        z_camera = center_depth
         x_camera = undistorted_cntr[0] * z_camera
         y_camera = undistorted_cntr[1] * z_camera
         xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
@@ -327,6 +341,7 @@ class MaskRCNNNode(object):
                         depth_array.append(depth[rect_y_min + h, rect_x_min + w])
                 if len(depth_array) == 0:
                     return 0
+                print(" The Depth value is averaged around the center point")
                 value = sum(depth_array) / len(depth_array) / 1000
                 # print("Around " + str(region) + " * " + str(region) + " pixels Depth :")
                 # print(depth_array)
@@ -364,6 +379,8 @@ class MaskRCNNNode(object):
         result = np.copy(image)
 
         for i in range(masks.shape[-1]):
+            if i in self.except_ids:
+                continue
             y1, x1, y2, x2 = rois[i]
             class_id = class_ids[i]
             score = scores[i]
@@ -374,11 +391,11 @@ class MaskRCNNNode(object):
             m = masks[:,:,i].astype(np.uint8)
             ret, thresh = cv2.threshold(m, 0.5, 1.0, cv2.THRESH_BINARY)
             contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for i, c in enumerate(contours):
+            for j, c in enumerate(contours):
                 area = cv2.contourArea(c)
                 if area < 1e2 or 1e5 < area:
                     continue
-                cv2.drawContours(result, contours, i, (0, 0, 255), 2)
+                cv2.drawContours(result, contours, j, (0, 0, 255), 2)
                 self.getOrientation(c, result)
 
         return result
