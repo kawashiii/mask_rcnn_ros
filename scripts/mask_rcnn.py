@@ -15,7 +15,7 @@ from geometry_msgs.msg import Point
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from std_msgs.msg import UInt8MultiArray
-# from phoxi_camera.srv import *
+from phoxi_camera.srv import *
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse
 
@@ -41,9 +41,9 @@ TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 #REGION_HEIGHT   = 450
 
 REGION_X_OFFSET = 500
-REGION_Y_OFFSET = 100
-REGION_WIDTH    = 900
-REGION_HEIGHT   = 600
+REGION_Y_OFFSET = 180
+REGION_WIDTH    = 730
+REGION_HEIGHT   = 560
 
 
 class InferenceConfig(lab.LabConfig):
@@ -105,9 +105,9 @@ class MaskRCNNNode(object):
         #     [0.0, 0.0, 0.0, 1.0]
         # ])
         marker_camera = np.array([
-            [0.01867525514088364, 0.9993184057691136, -0.03184271873600399, -0.1409958681584464],
-            [0.9997222614892132, -0.01912174444141923, -0.01377529572860523, 0.02297355827455749],
-            [-0.01437479489649772, -0.03157661762435001, -0.9993979600194756, 1.268140763626894],
+            [0.02531862109456928, 0.999292151418994, -0.02782379446208535, -0.1484852687172601],
+            [0.9996695616596197, -0.02543224634434937, -0.003737423864688477, 0.02626417384251021],
+            [-0.00444239992950354, -0.02771997399492036, -0.9996058563877002, 1.174721216776577],
             [0.0, 0.0, 0.0, 1.0]
         ])
 
@@ -153,19 +153,19 @@ class MaskRCNNNode(object):
         res = MaskRCNNSrvResponse()
 
         print("Waiting frame...")
-        # rospy.wait_for_service('/phoxi_camera/get_calibrated_frame')
-        # try:
-        #     srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_calibrated_frame', GetCalibratedFrame)
-        #     resp = srvGetCalibratedFrame(-1, "/camera/color/image_raw")
-        #     print("Servce call for Phoxi Success")
-        # except rospy.ServiceException:
-        #     print("Service call failed")
+        try:
+            srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_calibrated_frame', GetCalibratedFrame)
+            resp = srvGetCalibratedFrame(-1, "/camera/color/image_raw")
+            print("Servce call for Phoxi Success")
+        except rospy.ServiceException:
+            print("Service call failed")
+        rospy.wait_for_service('/phoxi_camera/get_calibrated_frame')
 
         timeout = 10
-        # image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image, timeout)
-        image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
-        # depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image, timeout)
-        depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
+        image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image, timeout)
+        # image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
+        depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image, timeout)
+        # depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
         print("Acquired frame!")
 
         result_msg = self.detect_objects(image_msg, depth_msg)
@@ -210,6 +210,7 @@ class MaskRCNNNode(object):
         result_msg.count = 0
 
         axes_msg = MarkerArray()
+        self.except_ids = []
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             print("*Object '" + self.class_names[result['class_ids'][i]] + "'")
@@ -282,9 +283,9 @@ class MaskRCNNNode(object):
         undistorted_cntr = undistorted_cntr.reshape(2)
 
         # Check center point of Depth Value
-        # center_depth = self.get_depth(depth, cntr[0], cntr[1])
+        center_depth = self.get_depth(depth, cntr[0], cntr[1])
         # center_depth = 1.46
-        center_depth = self.get_depth(depth, cntr[0] + REGION_X_OFFSET, cntr[1] + REGION_Y_OFFSET)
+        # center_depth = self.get_depth(depth, cntr[0] + REGION_X_OFFSET, cntr[1] + REGION_Y_OFFSET)
         if center_depth == 0.0:
             print(" Depth value around center point is all 0")
             return (0, 0, 0)
