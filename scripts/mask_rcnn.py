@@ -280,7 +280,10 @@ class MaskRCNNNode(object):
         mean = np.empty((0))
         mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
         # cntr = (int(mean[0,0]), int(mean[0,1]))
-        cntr = (int(mean[0,0]) + REGION_X_OFFSET, int(mean[0,1]) + REGION_Y_OFFSET)
+        # cntr = (int(mean[0,0]) + REGION_X_OFFSET, int(mean[0,1]) + REGION_Y_OFFSET)
+
+        M = cv2.moments(contour)
+        cntr = (int(M["m10"] / M["m00"]) + REGION_X_OFFSET, int(M["m01"] / M["m00"]) + REGION_Y_OFFSET)
 
         # Calculate center point on image coordinate by camera intrinsic parameter
         np_cntr = np.array(cntr, dtype=self.camera_matrix.dtype)
@@ -435,7 +438,9 @@ class MaskRCNNNode(object):
         mean = np.empty((0))
         mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
         # Store the center of the object
-        cntr = (int(mean[0,0]), int(mean[0,1]))
+        # cntr = (int(mean[0,0]), int(mean[0,1]))
+        M = cv2.moments(pts)
+        cntr = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
 
         cv2.circle(img, cntr, 3, (255, 0, 255), 2)
         p1 = (cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0])
