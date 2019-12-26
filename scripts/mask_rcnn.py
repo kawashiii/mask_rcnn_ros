@@ -30,7 +30,7 @@ from mrcnn import model as modellib
 from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
-MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab.h5")
+MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_2019_11_07.h5")
 # CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_1.xml")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
 TEST_IMG = os.path.join(ROOT_DIR, "test.png")
@@ -42,7 +42,7 @@ TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
 REGION_X_OFFSET = 500
 REGION_Y_OFFSET = 180
-REGION_WIDTH    = 730
+REGION_WIDTH    = 780
 REGION_HEIGHT   = 560
 
 
@@ -177,6 +177,9 @@ class MaskRCNNNode(object):
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_image = np_image[REGION_Y_OFFSET:REGION_Y_OFFSET + REGION_HEIGHT, REGION_X_OFFSET:REGION_X_OFFSET + REGION_WIDTH]
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
+
+        # MaskRCNN input data is RGB, not BGR
+        np_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
         
         # Run inference
         t1 = time.time()
@@ -185,6 +188,9 @@ class MaskRCNNNode(object):
         # Print detection time
         inference_time = t2 - t1
         print("Inference time: ", round(inference_time, 2), " s")
+
+        # Back to BGR for visualization and publish
+        np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
 
         result = results[0]
         # result_msg, axes_msg = self.build_result_msg(image_msg, result, np_image, np_depth)
