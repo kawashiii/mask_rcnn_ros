@@ -153,18 +153,18 @@ class MaskRCNNNode(object):
         res = MaskRCNNSrvResponse()
 
         print("Waiting frame...")
-        try:
-            srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_calibrated_frame', GetCalibratedFrame)
-            resp = srvGetCalibratedFrame(-1, "/camera/color/image_raw")
-            print("Servce call for Phoxi Success")
-        except rospy.ServiceException:
-            print("Service call failed")
-        rospy.wait_for_service('/phoxi_camera/get_calibrated_frame')
+        # rospy.wait_for_service('/phoxi_camera/get_frame')
+        # try:
+        #     srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_frame', GetFrame)
+        #     resp = srvGetFrame(-1)
+        #     print("Servce call for Phoxi Success")
+        # except rospy.ServiceException:
+        #     print("Service call failed")
 
         timeout = 10
-        image_msg = rospy.wait_for_message("/phoxi_camera/rgb_texture", Image, timeout)
+        image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, timeout)
         # image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
-        depth_msg = rospy.wait_for_message("/phoxi_camera/depth_map", Image, timeout)
+        depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, timeout)
         # depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
         print("Acquired frame!")
 
