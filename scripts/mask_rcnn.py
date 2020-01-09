@@ -78,13 +78,13 @@ class MaskRCNNNode(object):
 
         # Define service
         self.result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
-        print("Ready to detect objects. Please service call", rospy.get_name() +  '/MaskRCNNSrv')
+        rospy.loginfo("Ready to be called service")
         rospy.spin()
 
     def wait_frame(self, req):
         res = MaskRCNNSrvResponse()
 
-        print("Waiting frame...")
+        rospy.loginfo("Waiting frame ...")
         # rospy.wait_for_service('/phoxi_camera/get_frame')
         # try:
         #     srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_frame', GetFrame)
@@ -98,10 +98,14 @@ class MaskRCNNNode(object):
         # image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
         depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, timeout)
         # depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
-        print("Acquired frame!")
+        rospy.loginfo("Acquired frame")
 
+        start_build_msg = rospy.Time.now()
         result_msg = self.detect_objects(image_msg, depth_msg)
         res.detectedMaskRCNN = result_msg
+        end_build_msg = rospy.Time.now()
+        build_msg_time = end_build_msg - start_build_msg
+        rospy.loginfo("%s.%s[s] (Total time)", build_msg_time.secs, build_msg_time.nsecs)
 
         return res
 
@@ -114,12 +118,13 @@ class MaskRCNNNode(object):
         np_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
         
         # Run inference
-        t1 = time.time()
+        start_detection = rospy.Time.now()
+        rospy.loginfo("Detecting ...")
         results = self.model.detect([np_image], verbose=0)
-        t2 = time.time()            
+        end_detection = rospy.Time.now()        
         # Print detection time
-        inference_time = t2 - t1
-        print("Inference time: ", round(inference_time, 2), " s")
+        detection_time = end_detection - start_detection
+        rospy.loginfo("%s.%s[s] (Detection time)", detection_time.secs, detection_time.nsecs)
 
         # Back to BGR for visualization and publish
         np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
@@ -136,10 +141,11 @@ class MaskRCNNNode(object):
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
         self.visualization_pub.publish(image_msg)
 
-        print("Published result and image msg!")
+        rospy.loginfo("Published msg completely")
         return result_msg
 
     def build_result_msg(self, msg, result, depth):
+        rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
         result_msg.header = msg.header
         # result_msg.header.frame_id = "base_link"
@@ -150,7 +156,7 @@ class MaskRCNNNode(object):
         self.except_ids = []
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
-            print("*Object '" + self.class_names[result['class_ids'][i]] + "'")
+            rospy.loginfo("'%s' is detected", self.class_names[result['class_ids'][i]])
             mask = result['masks'][:,:,i].astype(np.uint8)
             area, center, x_axis = self.estimate_object_attribute(mask, depth)
             if (area, center, x_axis) == (0, 0, 0):
@@ -192,14 +198,14 @@ class MaskRCNNNode(object):
 
         # Because of one mask, the number of contours should be one.
         if len(contours) != 1:
-            print(" Inferenced mask is not clearly. Skip this object.")
+            rospy.logwarn("Skip this object.(Inferenced mask is not clearly.)")
             return (0, 0, 0)
 
         # Check Contour Area        
         contour = contours[0]        
         area = cv2.contourArea(contour)
         if area < 1e2 or 1e5 < area:
-            print(" The area of contours is too small or big")
+            rospy.logwarn("Skip this object.(The area of contours is too small or big.)")
             return (0, 0, 0)
 
         # Calculate PCA for x-axis and y-axis of object        
@@ -227,7 +233,7 @@ class MaskRCNNNode(object):
         # center_depth = 1.46
         # center_depth = self.get_depth(depth, cntr[0] + REGION_X_OFFSET, cntr[1] + REGION_Y_OFFSET)
         if center_depth == 0.0:
-            print(" Depth value around center point is all 0")
+            rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0)
 
         # Calculate center point on camera coordiante
@@ -242,7 +248,6 @@ class MaskRCNNNode(object):
         xyz_center_camera_homogeneous = np.append(xyz_center_camera, 1.0)
         xyz_center_world = np.dot(self.robot_camera, xyz_center_camera_homogeneous)
         # xyz_center_world_tmp = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
-        print(" The Center of Object (World Coordinate):", xyz_center_world)
         # print("The Center of Object Tmp (World Coordinate):", xyz_center_world_tmp)
 
         center = Point(xyz_center_world[0], xyz_center_world[1], xyz_center_world[2])
@@ -282,7 +287,7 @@ class MaskRCNNNode(object):
                         depth_array.append(depth[rect_y_min + h, rect_x_min + w])
                 if len(depth_array) == 0:
                     return 0
-                print(" The Depth value is averaged around the center point")
+                rospay.loginfo("This object's depth value is averaged around the center point")
                 value = sum(depth_array) / len(depth_array) / 1000
                 # print("Around " + str(region) + " * " + str(region) + " pixels Depth :")
                 # print(depth_array)
