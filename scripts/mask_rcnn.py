@@ -122,7 +122,6 @@ class MaskRCNNNode(object):
         rospy.loginfo("Detecting ...")
         results = self.model.detect([np_image], verbose=0)
         end_detection = rospy.Time.now()        
-        # Print detection time
         detection_time = end_detection - start_detection
         rospy.loginfo("%s.%s[s] (Detection time)", detection_time.secs, detection_time.nsecs)
 
@@ -130,35 +129,35 @@ class MaskRCNNNode(object):
         np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
 
         result = results[0]
-        result_msg, axes_msg = self.build_result_msg(image_msg, result, np_depth)
+        result_msg, axes_msg = self.build_result_msg(image_msg.header, result, np_image, np_depth)
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
         
         # Visualize results        
-        vis_image = self.visualize(result, np_image)
-        cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
-        cv2.convertScaleAbs(vis_image, cv_result)
-        image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        self.visualization_pub.publish(image_msg)
+        # vis_image = self.visualize(result, np_image)
+        # cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
+        # cv2.convertScaleAbs(vis_image, cv_result)
+        # image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+        # self.visualization_pub.publish(image_msg)
 
         rospy.loginfo("Published msg completely")
         return result_msg
 
-    def build_result_msg(self, msg, result, depth):
+    def build_result_msg(self, msg_header, result, image, depth):
         rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
-        result_msg.header = msg.header
-        # result_msg.header.frame_id = "base_link"
+        result_msg.header = msg_header
         result_msg.header.frame_id = "realsense_sensor"
         result_msg.count = 0
 
         axes_msg = MarkerArray()
+        vis_image = np.copy(image)
         self.except_ids = []
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             rospy.loginfo("'%s' is detected", self.class_names[result['class_ids'][i]])
             mask = result['masks'][:,:,i].astype(np.uint8)
-            area, center, x_axis = self.estimate_object_attribute(mask, depth)
+            area, center, x_axis = self.estimate_object_attribute(mask, depth, vis_image)
             if (area, center, x_axis) == (0, 0, 0):
                 self.except_ids.append(i)
                 continue
@@ -190,9 +189,17 @@ class MaskRCNNNode(object):
             score = result['scores'][i]
             result_msg.scores.append(score)
 
+            caption = "{} {:.3f}".format(class_name, score) if score else class_name
+            cv2.putText(vis_image, caption, (x1, y1 + 8), cv2.FONT_HERSHEY_TRIPLEX, 0.6, (0,255,0), 1, 8)
+
+        cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
+        cv2.convertScaleAbs(vis_image, cv_result)
+        image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+        self.visualization_pub.publish(image_msg)
+
         return result_msg, axes_msg
 
-    def estimate_object_attribute(self, mask, depth):
+    def estimate_object_attribute(self, mask, depth, vis_image):
         ret, thresh = cv2.threshold(mask, 0.5, 1.0, cv2.THRESH_BINARY)
         contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
@@ -255,6 +262,8 @@ class MaskRCNNNode(object):
         # Calculate x-axis
         np_x = np.array([cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
         np_x = np_x.reshape(-1, 1, 2)
+        np_y = np.array([cntr[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], cntr[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0]], dtype=self.camera_matrix.dtype)
+        np_y = np_x.reshape(-1, 1, 2)
         undistorted_x_axis = cv2.undistortPoints(np_x, self.camera_matrix, self.dist_coeffs)
         undistorted_x_axis = undistorted_x_axis.reshape(2)
         xyz_axis_camera = np.array([undistorted_x_axis[0] * z_camera, undistorted_x_axis[1] * z_camera, z_camera], dtype=np.float32)
@@ -263,6 +272,14 @@ class MaskRCNNNode(object):
         # xyz_axis_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_axis_camera) - xyz_center_world
         
         x_axis = Vector3(xyz_axis_world[0], xyz_axis_world[1], xyz_axis_world[2])
+
+        # visualize mask, axis
+        cv2.drawContours(vis_image, contours, 0, (255, 255, 0), 2)
+        cntr = (cntr[0] - REGION_X_OFFSET, cntr[1] - REGION_Y_OFFSET)
+        p1 = (cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0])
+        p2 = (cntr[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], cntr[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0])
+        self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 1)
+        self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 5)
 
         return area, center, x_axis
 
