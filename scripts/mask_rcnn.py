@@ -62,13 +62,8 @@ class MaskRCNNNode(object):
         fs = cv2.FileStorage(CAMERA_INTRINSIC, cv2.FILE_STORAGE_READ)
         self.camera_matrix = fs.getNode("camera_matrix").mat()
         self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
-        self.set_coordinate_trasformation()
 
         self.class_names = lab.class_names
-        self.except_ids = []
-
-    def set_coordinate_trasformation(self):
-        self.robot_camera = np.eye(4)
     
     def run(self):
         # Define publisher
@@ -85,14 +80,6 @@ class MaskRCNNNode(object):
         res = MaskRCNNSrvResponse()
 
         rospy.loginfo("Waiting frame ...")
-        # rospy.wait_for_service('/phoxi_camera/get_frame')
-        # try:
-        #     srvGetCalibratedFrame = rospy.ServiceProxy('/phoxi_camera/get_frame', GetFrame)
-        #     resp = srvGetFrame(-1)
-        #     print("Servce call for Phoxi Success")
-        # except rospy.ServiceException:
-        #     print("Service call failed")
-
         timeout = 10
         image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, timeout)
         # image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
@@ -100,12 +87,12 @@ class MaskRCNNNode(object):
         # depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
         rospy.loginfo("Acquired frame")
 
-        start_build_msg = rospy.Time.now()
+        start_build_msg = time.time() 
         result_msg = self.detect_objects(image_msg, depth_msg)
         res.detectedMaskRCNN = result_msg
-        end_build_msg = rospy.Time.now()
+        end_build_msg = time.time() 
         build_msg_time = end_build_msg - start_build_msg
-        rospy.loginfo("%s.%s[s] (Total time)", build_msg_time.secs, build_msg_time.nsecs)
+        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
 
         return res
 
@@ -118,48 +105,38 @@ class MaskRCNNNode(object):
         np_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
         
         # Run inference
-        start_detection = rospy.Time.now()
+        start_detection = time.time() 
         rospy.loginfo("Detecting ...")
         results = self.model.detect([np_image], verbose=0)
-        end_detection = rospy.Time.now()        
+        end_detection = time.time()
         detection_time = end_detection - start_detection
-        rospy.loginfo("%s.%s[s] (Detection time)", detection_time.secs, detection_time.nsecs)
+        rospy.loginfo("%s[s] (Detection time)", round(detection_time, 3))
 
         # Back to BGR for visualization and publish
         np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
 
         result = results[0]
-        result_msg, axes_msg = self.build_result_msg(image_msg.header, result, np_image, np_depth)
-        self.result_pub.publish(result_msg)
-        self.marker_pub.publish(axes_msg)
-        
-        # Visualize results        
-        # vis_image = self.visualize(result, np_image)
-        # cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
-        # cv2.convertScaleAbs(vis_image, cv_result)
-        # image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        # self.visualization_pub.publish(image_msg)
+        result_msg = self.build_result_msg(image_msg.header, result, np_image, np_depth)
 
-        rospy.loginfo("Published msg completely")
         return result_msg
 
     def build_result_msg(self, msg_header, result, image, depth):
         rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
         result_msg.header = msg_header
-        result_msg.header.frame_id = "realsense_sensor"
+        result_msg.header.frame_id = "realsense_rgb_sensor_calibrated"
         result_msg.count = 0
 
-        axes_msg = MarkerArray()
         vis_image = np.copy(image)
-        self.except_ids = []
+        axes_msg = MarkerArray()
+        delete_marker = self.delete_all_markers()
+        axes_msg.markers.append(delete_marker)
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             rospy.loginfo("'%s' is detected", self.class_names[result['class_ids'][i]])
             mask = result['masks'][:,:,i].astype(np.uint8)
             area, center, x_axis = self.estimate_object_attribute(mask, depth, vis_image)
             if (area, center, x_axis) == (0, 0, 0):
-                self.except_ids.append(i)
                 continue
 
             result_msg.areas.append(area)
@@ -190,14 +167,19 @@ class MaskRCNNNode(object):
             result_msg.scores.append(score)
 
             caption = "{} {:.3f}".format(class_name, score) if score else class_name
-            cv2.putText(vis_image, caption, (x1, y1 + 8), cv2.FONT_HERSHEY_TRIPLEX, 0.6, (0,255,0), 1, 8)
+            cv2.putText(vis_image, caption, (x1, y1 - 5), cv2.FONT_HERSHEY_COMPLEX_SMALL, 1.0, (255,0,255), 1, 8)
+
+        self.result_pub.publish(result_msg)
+        self.marker_pub.publish(axes_msg)
 
         cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
         cv2.convertScaleAbs(vis_image, cv_result)
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
         self.visualization_pub.publish(image_msg)
 
-        return result_msg, axes_msg
+        rospy.loginfo("Published msg completely")
+
+        return result_msg
 
     def estimate_object_attribute(self, mask, depth, vis_image):
         ret, thresh = cv2.threshold(mask, 0.5, 1.0, cv2.THRESH_BINARY)
@@ -223,65 +205,47 @@ class MaskRCNNNode(object):
             data_pts[k,1] = contour[k,0,1]
         mean = np.empty((0))
         mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
-        # cntr = (int(mean[0,0]), int(mean[0,1]))
         # cntr = (int(mean[0,0]) + REGION_X_OFFSET, int(mean[0,1]) + REGION_Y_OFFSET)
 
         M = cv2.moments(contour)
-        cntr = (int(M["m10"] / M["m00"]) + REGION_X_OFFSET, int(M["m01"] / M["m00"]) + REGION_Y_OFFSET)
+        obj_center_pixel = (int(M["m10"] / M["m00"]) + REGION_X_OFFSET, int(M["m01"] / M["m00"]) + REGION_Y_OFFSET)
 
         # Calculate center point on image coordinate by camera intrinsic parameter
-        np_cntr = np.array(cntr, dtype=self.camera_matrix.dtype)
-        np_cntr = np_cntr.reshape(-1, 1, 2)
-        undistorted_cntr = cv2.undistortPoints(np_cntr, self.camera_matrix, self.dist_coeffs)
-        undistorted_cntr = undistorted_cntr.reshape(2)
+        np_obj_center_pixel = np.array(obj_center_pixel, dtype=self.camera_matrix.dtype)
+        undistorted_center = cv2.undistortPoints(np_obj_center_pixel, self.camera_matrix, self.dist_coeffs)
+        undistorted_center = undistorted_center.reshape(2)
 
         # Check center point of Depth Value
-        center_depth = self.get_depth(depth, cntr[0], cntr[1])
-        # center_depth = 1.46
-        # center_depth = self.get_depth(depth, cntr[0] + REGION_X_OFFSET, cntr[1] + REGION_Y_OFFSET)
-        if center_depth == 0.0:
+        obj_center_depth = self.get_depth(depth, obj_center_pixel[0], obj_center_pixel[1])
+        if obj_center_depth == 0.0:
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0)
 
         # Calculate center point on camera coordiante
-        # z_camera = center_depth + 0.02 # 0.02 means adjustment
-        z_camera = center_depth
-        x_camera = undistorted_cntr[0] * z_camera
-        y_camera = undistorted_cntr[1] * z_camera
-        xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
-        # print(" The Center of Object (Camera Coordinate):", xyz_center_camera)
-
-        # Calculate center point on world(robot) coordinate
-        xyz_center_camera_homogeneous = np.append(xyz_center_camera, 1.0)
-        xyz_center_world = np.dot(self.robot_camera, xyz_center_camera_homogeneous)
-        # xyz_center_world_tmp = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_center_camera)
-        # print("The Center of Object Tmp (World Coordinate):", xyz_center_world_tmp)
-
-        center = Point(xyz_center_world[0], xyz_center_world[1], xyz_center_world[2])
+        obj_center_z = obj_center_depth
+        obj_center_x = undistorted_center[0] * obj_center_z
+        obj_center_y = undistorted_center[1] * obj_center_z
+        obj_center_camera = Point(obj_center_x, obj_center_y, obj_center_z)
 
         # Calculate x-axis
-        np_x = np.array([cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
-        np_x = np_x.reshape(-1, 1, 2)
-        np_y = np.array([cntr[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], cntr[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0]], dtype=self.camera_matrix.dtype)
-        np_y = np_x.reshape(-1, 1, 2)
-        undistorted_x_axis = cv2.undistortPoints(np_x, self.camera_matrix, self.dist_coeffs)
+        np_x_axis_pixel = np.array([obj_center_pixel[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], obj_center_pixel[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0]], dtype=self.camera_matrix.dtype)
+        np_y_axis_pixel = np.array([obj_center_pixel[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], obj_center_pixel[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0]], dtype=self.camera_matrix.dtype)
+        undistorted_x_axis = cv2.undistortPoints(np_x_axis_pixel, self.camera_matrix, self.dist_coeffs)
         undistorted_x_axis = undistorted_x_axis.reshape(2)
-        xyz_axis_camera = np.array([undistorted_x_axis[0] * z_camera, undistorted_x_axis[1] * z_camera, z_camera], dtype=np.float32)
-        xyz_axis_camera_homogeneous = np.append(xyz_axis_camera, 1.0)
-        xyz_axis_world = np.dot(self.robot_camera, xyz_axis_camera_homogeneous) - xyz_center_world
-        # xyz_axis_world = self.marker_origin + self.tvec + np.dot(self.rvec, xyz_axis_camera) - xyz_center_world
-        
-        x_axis = Vector3(xyz_axis_world[0], xyz_axis_world[1], xyz_axis_world[2])
+        x_axis_z = obj_center_depth
+        x_axis_x = undistorted_x_axis[0] * x_axis_z
+        x_axis_y = undistorted_x_axis[1] * x_axis_z
+        x_axis_camera = Vector3(x_axis_x, x_axis_y, x_axis_z)
 
         # visualize mask, axis
         cv2.drawContours(vis_image, contours, 0, (255, 255, 0), 2)
-        cntr = (cntr[0] - REGION_X_OFFSET, cntr[1] - REGION_Y_OFFSET)
+        cntr = (obj_center_pixel[0] - REGION_X_OFFSET, obj_center_pixel[1] - REGION_Y_OFFSET)
         p1 = (cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0])
         p2 = (cntr[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], cntr[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0])
         self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 1)
         self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 5)
 
-        return area, center, x_axis
+        return area, obj_center_camera, x_axis_camera
 
     def get_depth(self, depth, x, y):
         value = depth[y, x] / 1000
@@ -304,16 +268,14 @@ class MaskRCNNNode(object):
                         depth_array.append(depth[rect_y_min + h, rect_x_min + w])
                 if len(depth_array) == 0:
                     return 0
-                rospay.loginfo("This object's depth value is averaged around the center point")
+                rospy.loginfo("This object's depth value is averaged around the center point")
                 value = sum(depth_array) / len(depth_array) / 1000
-                # print("Around " + str(region) + " * " + str(region) + " pixels Depth :")
-                # print(depth_array)
                 return value
 
     def build_marker_msg(self, id, center, x_axis):
         x_axis_marker = Marker()
 
-        x_axis_marker.header.frame_id = "realsense_sensor"
+        x_axis_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
         x_axis_marker.header.stamp = rospy.Time()
         x_axis_marker.ns = "mask_rcnn_detected_x_axis"
         x_axis_marker.type = Marker.ARROW
@@ -329,39 +291,21 @@ class MaskRCNNNode(object):
         x_axis_marker.id = id
         x_axis_marker.text = str(x_axis_marker.id)
         start_point = center
-        end_point = Point(start_point.x + x_axis.x, start_point.y + x_axis.y, start_point.z + x_axis.z)
+        end_point = x_axis
         x_axis_marker.points = [start_point, end_point]
 
         return x_axis_marker
 
-    def visualize(self, result, image):
-        rois = result['rois']
-        masks = result['masks']
-        class_ids = result['class_ids']
-        scores = result['scores']
-        result = np.copy(image)
+    def delete_all_markers(self):
+        delete_marker = Marker()
 
-        for i in range(masks.shape[-1]):
-            if i in self.except_ids:
-                continue
-            y1, x1, y2, x2 = rois[i]
-            class_id = class_ids[i]
-            score = scores[i]
-            label = self.class_names[class_id]
-            caption = "{} {:.3f}".format(label, score) if score else label
-            cv2.putText(result, caption, (x1, y1 + 8), cv2.FONT_HERSHEY_TRIPLEX, 0.6, (0,255,0), 1, 8)
- 
-            m = masks[:,:,i].astype(np.uint8)
-            ret, thresh = cv2.threshold(m, 0.5, 1.0, cv2.THRESH_BINARY)
-            contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-            for j, c in enumerate(contours):
-                area = cv2.contourArea(c)
-                if area < 1e2 or 1e5 < area:
-                    continue
-                cv2.drawContours(result, contours, j, (0, 0, 255), 2)
-                self.getOrientation(c, result)
+        delete_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
+        delete_marker.header.stamp = rospy.Time()
+        delete_marker.ns = "mask_rcnn_detected_x_axis"
+        delete_marker.type = Marker.ARROW
+        delete_marker.action = Marker.DELETEALL
 
-        return result
+        return delete_marker
 
     def drawAxis(self, img, p_, q_, colour, scale):
         p = list(p_)
@@ -380,29 +324,6 @@ class MaskRCNNNode(object):
         p[0] = q[0] + 9 * cos(angle - pi / 4)
         p[1] = q[1] + 9 * sin(angle - pi / 4)
         cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 1, cv2.LINE_AA)
-
-    def getOrientation(self, pts, img):    
-        sz = len(pts)
-        data_pts = np.empty((sz, 2), dtype=np.float64)
-        for i in range(data_pts.shape[0]):
-            data_pts[i,0] = pts[i,0,0]
-            data_pts[i,1] = pts[i,0,1]
-        # Perform PCA analysis
-        mean = np.empty((0))
-        mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
-        # Store the center of the object
-        # cntr = (int(mean[0,0]), int(mean[0,1]))
-        M = cv2.moments(pts)
-        cntr = (int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"]))
-
-        cv2.circle(img, cntr, 3, (255, 0, 255), 2)
-        p1 = (cntr[0] + 0.02 * eigenvectors[0,0] * eigenvalues[0,0], cntr[1] + 0.02 * eigenvectors[0,1] * eigenvalues[0,0])
-        p2 = (cntr[0] - 0.02 * eigenvectors[1,0] * eigenvalues[1,0], cntr[1] - 0.02 * eigenvectors[1,1] * eigenvalues[1,0])
-        self.drawAxis(img, cntr, p1, (0, 0, 255), 1)
-        self.drawAxis(img, cntr, p2, (0, 255, 0), 5)
-        angle = atan2(eigenvectors[0,1], eigenvectors[0,0]) # orientation in radians
-        
-        return angle
 
 def main():
     rospy.init_node('mask_rcnn')
