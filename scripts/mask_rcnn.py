@@ -33,15 +33,9 @@ ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_2019_11_07.h5")
 # CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_1.xml")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
-TEST_IMG = os.path.join(ROOT_DIR, "test.png")
 
-#REGION_X_OFFSET = 600
-#REGION_Y_OFFSET = 250
-#REGION_WIDTH    = 700
-#REGION_HEIGHT   = 450
-
-REGION_X_OFFSET = 500
-REGION_Y_OFFSET = 180
+REGION_X_OFFSET = 520
+REGION_Y_OFFSET = 260
 REGION_WIDTH    = 780
 REGION_HEIGHT   = 560
 
@@ -72,72 +66,10 @@ class MaskRCNNNode(object):
 
         self.class_names = lab.class_names
         self.except_ids = []
-        # self.publish_rate = 100
-        # self.class_colors = visualize.random_colors(len(CLASS_NAMES))
 
     def set_coordinate_trasformation(self):
-        # Marker position and pose from camera coordinate
-        # ur5e
-        # tvec_from_camera = np.array([-0.221303, -0.259659, 0.854517], dtype=np.float32)
-        # rvec_from_camera = np.array([
-        #     [0.01391082878792294, 0.9998143798348266, 0.01333021822529676],
-        #     [0.9998941380955942, -0.0138525840224244, -0.004451799408139552],
-        #     [-0.00426631509639492, 0.01339073528237409, -0.9999012385051315]
-        # ], dtype=np.float32)
-        # yamaha
-        # tvec_from_camera = np.array([-0.00210478, 0.181383, 1.2632], dtype=np.float32)
-        # rvec_from_camera = np.array([
-        #     [0.01867525514088364, 0.9997222614892132, -0.01437479489649772],
-        #     [0.9993184057691136, -0.01912174444141923, -0.03157661762435001],
-        #     [-0.03184271873600399, -0.01377529572860523, -0.9993979600194756]
-        # ], dtype=np.float32)
-
-        # Camera position and pose from marker coordinate
-        # tvec_from_marker = np.dot(rvec_from_camera, tvec_from_camera) * -1
-        # rvec_from_marker = rvec_from_camera.T
-        # tvec_from_marker = np.dot(rvec_from_marker, (tvec_from_camera * -1))
-
-        # Transformation matrix from camera to marker coordinate
-        # marker_camera = np.array([
-        #     np.append(rvec_from_marker[0], tvec_from_marker[0]),
-        #     np.append(rvec_from_marker[1], tvec_from_marker[1]),
-        #     np.append(rvec_from_marker[2], tvec_from_marker[2]),
-        #     [0.0, 0.0, 0.0, 1.0]
-        # ])
-        marker_camera = np.array([
-            [0.02531862109456928, 0.999292151418994, -0.02782379446208535, -0.1484852687172601],
-            [0.9996695616596197, -0.02543224634434937, -0.003737423864688477, 0.02626417384251021],
-            [-0.00444239992950354, -0.02771997399492036, -0.9996058563877002, 1.174721216776577],
-            [0.0, 0.0, 0.0, 1.0]
-        ])
-
-        # Transformation matrix from marker to robot coordinate
-        # ur5e
-        # robot_marker = np.array([
-        #     [1.0, 0.0, 0.0, 0.24],
-        #     [0.0, 1.0, 0.0, -0.58],
-        #     [0.0, 0.0, 1.0, -0.1],
-        #     [0.0, 0.0, 0.0, 1.0]
-        # ])
-        # yamaha
-        # robot_marker = np.array([
-        #    [0.0, 1.0, 0.0, 0.851],
-        #    [1.0, 0.0, 0.0, 0.661],
-        #    [0.0, 0.0, -1.0, 0.008],
-        #    [0.0, 0.0, 0.0, 1.0]
-        #])
-        robot_marker = np.array([
-             [1.0, 0.0, 0.0, 0.661],
-             [0.0, 1.0, 0.0, 0.851],
-             [0.0, 0.0, 1.0, -0.008],
-             [0.0, 0.0, 0.0, 1.0]
-        ])
-        
-
-        # self.robot_camera = np.dot(robot_marker, marker_camera)
         self.robot_camera = np.eye(4)
-
-
+    
     def run(self):
         # Define publisher
         self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1)
@@ -193,7 +125,6 @@ class MaskRCNNNode(object):
         np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
 
         result = results[0]
-        # result_msg, axes_msg = self.build_result_msg(image_msg, result, np_image, np_depth)
         result_msg, axes_msg = self.build_result_msg(image_msg, result, np_depth)
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
@@ -305,7 +236,7 @@ class MaskRCNNNode(object):
         x_camera = undistorted_cntr[0] * z_camera
         y_camera = undistorted_cntr[1] * z_camera
         xyz_center_camera = np.array([x_camera, y_camera, z_camera], dtype=np.float32)
-        print(" The Center of Object (Camera Coordinate):", xyz_center_camera)
+        # print(" The Center of Object (Camera Coordinate):", xyz_center_camera)
 
         # Calculate center point on world(robot) coordinate
         xyz_center_camera_homogeneous = np.append(xyz_center_camera, 1.0)
