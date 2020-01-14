@@ -23,8 +23,5 @@ sensor_msgs/Image[] masks
 # Center Point of mask
 geometry_msgs/Point[] centers
 
-# X axis of mask
-# geometry_msgs/Vector3[] x_axis
-
-# Y axis of mask
-# geometry_msgs/Vector3[] y_axis
+# Normal vectors
+geometry_msgs/Vector3[] normals
