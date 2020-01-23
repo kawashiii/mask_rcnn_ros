@@ -34,11 +34,17 @@ ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_2019_11_07.h5")
 # CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_1.xml")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
+# CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
 
-REGION_X_OFFSET = 520
-REGION_Y_OFFSET = 260
-REGION_WIDTH    = 780
-REGION_HEIGHT   = 560
+REGION_X_OFFSET = 720
+REGION_Y_OFFSET = 200
+REGION_WIDTH    = 680
+REGION_HEIGHT   = 500
+
+# REGION_X_OFFSET = 0
+# REGION_Y_OFFSET = 0
+# REGION_WIDTH    = 2048
+# REGION_HEIGHT   = 1536
 
 # if the depth of (x, y) is 0, it is approximate depth value around specific pixel
 DEPTH_APPROXIMATE_RANGE = 10
@@ -128,7 +134,8 @@ class MaskRCNNNode(object):
         rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
         result_msg.header = msg_header
-        result_msg.header.frame_id = "realsense_rgb_sensor_calibrated"
+        # result_msg.header.frame_id = "realsense_rgb_sensor_calibrated"
+        result_msg.header.frame_id = "basler_ace_rgb_sensor_calibrated"
         result_msg.count = 0
 
         vis_image = np.copy(image)
@@ -241,6 +248,8 @@ class MaskRCNNNode(object):
         print("obj_center_depth: ", obj_center_depth)
         print("x_axis_depth: ", x_axis_depth)
 
+        obj_center_depth += 0.06
+
         # Calculate center point on camera coordiante
         obj_center_z = obj_center_depth
         obj_center_x = undistorted_center[0] * obj_center_z
@@ -305,7 +314,8 @@ class MaskRCNNNode(object):
     def build_marker_msg(self, id, center, axis, r, g, b, description):
         axis_marker = Marker()
 
-        axis_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
+        # axis_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
+        axis_marker.header.frame_id = "basler_ace_rgb_sensor_calibrated"
         axis_marker.header.stamp = rospy.Time()
         axis_marker.ns = "mask_rcnn_detected_" + description
         axis_marker.type = Marker.ARROW
@@ -330,7 +340,8 @@ class MaskRCNNNode(object):
     def delete_all_markers(self):
         delete_marker = Marker()
 
-        delete_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
+        # delete_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
+        delete_marker.header.frame_id = "basler_ace_rgb_sensor_calibrated"
         delete_marker.header.stamp = rospy.Time()
         delete_marker.type = Marker.ARROW
         delete_marker.action = Marker.DELETEALL
