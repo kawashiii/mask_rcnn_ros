@@ -33,18 +33,18 @@ from mrcnn import visualize
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_2019_11_07.h5")
 # CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_1.xml")
-CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
-# CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
+# CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
+CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
 
-REGION_X_OFFSET = 720
-REGION_Y_OFFSET = 200
-REGION_WIDTH    = 680
-REGION_HEIGHT   = 500
+#REGION_X_OFFSET = 700
+#REGION_Y_OFFSET = 210
+#REGION_WIDTH    = 700
+#REGION_HEIGHT   = 500
 
-# REGION_X_OFFSET = 0
-# REGION_Y_OFFSET = 0
-# REGION_WIDTH    = 2048
-# REGION_HEIGHT   = 1536
+REGION_X_OFFSET = 0
+REGION_Y_OFFSET = 0
+REGION_WIDTH    = 2048
+REGION_HEIGHT   = 1536
 
 # if the depth of (x, y) is 0, it is approximate depth value around specific pixel
 DEPTH_APPROXIMATE_RANGE = 10
@@ -248,7 +248,7 @@ class MaskRCNNNode(object):
         print("obj_center_depth: ", obj_center_depth)
         print("x_axis_depth: ", x_axis_depth)
 
-        obj_center_depth += 0.06
+        # obj_center_depth += 0.06
 
         # Calculate center point on camera coordiante
         obj_center_z = obj_center_depth
