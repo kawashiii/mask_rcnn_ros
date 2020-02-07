@@ -306,8 +306,8 @@ class MaskRCNNNode(object):
                         depth_array.append(depth[rect_y_min + h, rect_x_min + w])
                 if len(depth_array) == 0:
                     center_depth = 0
-                rospy.loginfo("This object's depth value is averaged around the center point")
-                center_depth = sum(depth_array) / len(depth_array) / 1000
+                    rospy.loginfo("This object's depth value is averaged around the center point")
+                else: center_depth = sum(depth_array) / len(depth_array) / 1000
 
         return center_depth, x_axis_depth, y_axis_depth
 
