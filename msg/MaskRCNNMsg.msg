@@ -24,4 +24,4 @@ sensor_msgs/Image[] masks
 geometry_msgs/Point[] centers
 
 # Normal vectors
-geometry_msgs/Vector3[] normals
+geometry_msgs/Vector3Stamped[] normals
