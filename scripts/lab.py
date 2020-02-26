@@ -33,10 +33,12 @@ DEFAULT_LOGS_DIR = os.path.join(ROOT_DIR, "logs")
 
 EPOCH = 50
 
-class_names = [
-    'BG', 'caloriemate', 'koiwashi', 'fabrise', 'saratekt',
-    'cleanser', 'jerry', 'dishcup', 'bottle'
-]
+#class_names = [
+#    'BG', 'caloriemate', 'koiwashi', 'fabrise', 'saratekt',
+#    'cleanser', 'jerry', 'dishcup', 'bottle'
+#]
+
+class_names = ['BG', 'choice']
 
 ############################################################
 #  Configurations
@@ -61,7 +63,7 @@ class LabConfig(Config):
     GPU_COUNT = 4
 
     # Number of classes (including background)
-    NUM_CLASSES = 1 + 8
+    NUM_CLASSES = len(class_names)
 
     # Number of training steps per epoch
     # This doesn't need to match the size of the training set. Tensorboard

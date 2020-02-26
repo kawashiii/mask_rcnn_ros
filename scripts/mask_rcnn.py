@@ -12,13 +12,19 @@ import roslib.packages
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
 from geometry_msgs.msg import Vector3
+from geometry_msgs.msg import Vector3Stamped
 from geometry_msgs.msg import Point
+from geometry_msgs.msg import PointStamped
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from std_msgs.msg import UInt8MultiArray
+from std_msgs.msg import Int32
 from phoxi_camera.srv import *
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse
+
+#import tf
+#import tf_conversions
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import lab
@@ -31,15 +37,9 @@ from mrcnn import model as modellib
 from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
-MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_2019_11_07.h5")
-# CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_1.xml")
-# CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/realsense_intrinsic_2.xml")
+MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_choice.h5")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
-
-#REGION_X_OFFSET = 700
-#REGION_Y_OFFSET = 210
-#REGION_WIDTH    = 700
-#REGION_HEIGHT   = 500
+FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
 REGION_X_OFFSET = 0
 REGION_Y_OFFSET = 0
@@ -49,6 +49,18 @@ REGION_HEIGHT   = 1536
 # if the depth of (x, y) is 0, it is approximate depth value around specific pixel
 DEPTH_APPROXIMATE_RANGE = 10
 
+# The edge position of container 
+CONTAINER_EDGE_POSITION = np.array([
+    [0.300, 0.203, 0.000],
+    [0.300, -0.203, 0.000],
+    [-0.300, 0.203, 0.000],
+    [-0.300, -0.203, 0.000],
+    [0.300, 0.203, 0.315],
+    [0.300, -0.203, 0.315],
+    [-0.300, 0.203, 0.315],
+    [-0.300, -0.203, 0.315]
+], dtype=float)
+                               
 
 class InferenceConfig(lab.LabConfig):
     # Set batch size to 1 since we'll be running inference on
@@ -77,14 +89,44 @@ class MaskRCNNNode(object):
     
     def run(self):
         # Define publisher
-        self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1)
+        self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1, latch=True)
         self.visualization_pub = rospy.Publisher(rospy.get_name() + '/visualization', Image, queue_size=1, latch=True)
+        self.vis_picking_object_pub = rospy.Publisher(rospy.get_name() + '/vis_picking_object', Image, queue_size=1, latch=True)
         self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1)
+        self.trigger_pub = rospy.Publisher(rospy.get_name() + '/trigger_id', Int32, queue_size=1, latch=True)
+
+        # Define subscriber
+        # self.result_sub = rospy.Subscriber("/phoxi_camera/external_camera_texture", Image, self.callback_get_image)
+        # self.trigger_sub = rospy.Subscriber("icp_registration/trigger_id", Int32, self.callback_get_trigger)
 
         # Define service
         self.result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
+
+        # self.listner = tf.TransformListener()
+
         rospy.loginfo("Ready to be called service")
         rospy.spin()
+
+    def callback_get_image(self, image_msg):
+        depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, 10)
+        trigger_id = rospy.wait_for_message("/phoxi_camera/trigger_id", Int32, 10)
+        rospy.loginfo("TriggerID: %s", trigger_id.data)       
+ 
+        start_build_msg = time.time() 
+        result_msg = self.detect_objects(image_msg, depth_msg)
+        self.trigger_pub.publish(trigger_id.data)
+        end_build_msg = time.time() 
+        build_msg_time = end_build_msg - start_build_msg
+        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
+
+    def callback_get_trigger(self, trigger_id):
+        pt = PointStamped()
+        # pt.header.frame_id = "container"
+        # for p in CONTAINER_EDGE_POSITION:
+        #     pt.point = p.x
+        #     pt.point = p.y
+        #     pt.point = p.z
+        
 
     def wait_frame(self, req):
         res = MaskRCNNSrvResponse()
@@ -92,9 +134,7 @@ class MaskRCNNNode(object):
         rospy.loginfo("Waiting frame ...")
         timeout = 10
         image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, timeout)
-        # image_msg = rospy.wait_for_message("/camera/color/image_raw", Image, timeout)
         depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, timeout)
-        # depth_msg = rospy.wait_for_message("/camera/aligned_depth_to_color/image_raw", Image, timeout)
         rospy.loginfo("Acquired frame")
 
         start_build_msg = time.time() 
@@ -134,8 +174,7 @@ class MaskRCNNNode(object):
         rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
         result_msg.header = msg_header
-        # result_msg.header.frame_id = "realsense_rgb_sensor_calibrated"
-        result_msg.header.frame_id = "basler_ace_rgb_sensor_calibrated"
+        result_msg.header.frame_id = FRAME_ID
         result_msg.count = 0
 
         vis_image = np.copy(image)
@@ -159,10 +198,25 @@ class MaskRCNNNode(object):
                 z_axis = Vector3(z_axis.x * -1, z_axis.y * -1, z_axis.z * -1)
                 x_axis = Vector3(x_axis.x * -1, x_axis.y * -1, x_axis.z * -1)
 
+            z_axis_stamped = Vector3Stamped()
+            z_axis_stamped.header.frame_id = FRAME_ID
+            z_axis_stamped.header.stamp = rospy.Time.now()
+            z_axis_stamped.vector = z_axis
+
+            center_stamped = PointStamped()
+            center_stamped.header.frame_id = FRAME_ID
+            center_stamped.header.stamp = rospy.Time.now()
+            center_stamped.point = center
+ 
+            x_axis_stamped = Vector3Stamped()
+            x_axis_stamped.header.frame_id = FRAME_ID
+            x_axis_stamped.header.stamp = rospy.Time.now()
+            x_axis_stamped.vector = x_axis
+
             result_msg.areas.append(area)
-            result_msg.centers.append(center)
-            result_msg.axes.append(x_axis)
-            result_msg.normals.append(z_axis)            
+            result_msg.centers.append(center_stamped)
+            result_msg.axes.append(x_axis_stamped)
+            result_msg.normals.append(z_axis_stamped)            
 
             x_axis_marker = self.build_marker_msg(i, center, x_axis, 1.0, 0.0, 0.0, "x_axis")
             y_axis_marker = self.build_marker_msg(i, center, y_axis, 0.0, 1.0, 0.0, "y_axis")
@@ -171,7 +225,6 @@ class MaskRCNNNode(object):
             axes_msg.markers.append(y_axis_marker)
             axes_msg.markers.append(z_axis_marker)
 
-            # result_msg.ids.append(i)
             result_msg.ids.append(result_msg.count)
             result_msg.count += 1
 
@@ -192,12 +245,19 @@ class MaskRCNNNode(object):
             result_msg.scores.append(score)
 
             caption = "{} {:.3f}".format(class_name, score) if score else class_name
-            cv2.putText(vis_image, caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,255), 1, cv2.LINE_AA)
+            cv2.putText(vis_image, caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
 
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
 
         cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
+        cv2.convertScaleAbs(vis_image, cv_result)
+        image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+        # self.visualization_pub.publish(image_msg)
+        self.vis_picking_object_pub.publish(image_msg)
+
+        vis_image = self.visualize(result, image)
+        cv_result = np.zeros(shape=image.shape, dtype=np.uint8)
         cv2.convertScaleAbs(vis_image, cv_result)
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
         self.visualization_pub.publish(image_msg)
@@ -218,7 +278,7 @@ class MaskRCNNNode(object):
         # Check Contour Area        
         contour = contours[0]        
         area = cv2.contourArea(contour)
-        if area < 1e2 or 1e5 < area:
+        if area < 1e2 or 1e7 < area:
             rospy.logwarn("Skip this object.(The area of contours is too small or big.)")
             return (0, 0, 0, 0)
 
@@ -245,10 +305,8 @@ class MaskRCNNNode(object):
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0, 0)
 
-        print("obj_center_depth: ", obj_center_depth)
-        print("x_axis_depth: ", x_axis_depth)
-
-        # obj_center_depth += 0.06
+        # print("obj_center_depth: ", obj_center_depth)
+        # print("x_axis_depth: ", x_axis_depth)
 
         # Calculate center point on camera coordiante
         obj_center_z = obj_center_depth
@@ -276,13 +334,13 @@ class MaskRCNNNode(object):
         y_axis_camera = Vector3(y_axis_x/magnitude_x_axis, y_axis_y/magnitude_x_axis, y_axis_z/magnitude_x_axis)
 
         # visualize mask, axis
-        cv2.drawContours(vis_image, contours, 0, (255, 255, 0), 2)
+        cv2.drawContours(vis_image, contours, 0, (255, 255, 0), 6)
         cntr = (int(mean[0,0]), int(mean[0,1]))
-        cv2.circle(vis_image, cntr, 3, (255, 0, 255), 2)
+        cv2.circle(vis_image, cntr, 10, (255, 0, 255), -1)
         p1 = (cntr[0] + unit_x_axis_pixel[0]*20, cntr[1] + unit_x_axis_pixel[1]*20)
         p2 = (cntr[0] - unit_y_axis_pixel[0]*20, cntr[1] - unit_y_axis_pixel[1]*20)
-        self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 1)
-        self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 1)
+        self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 3)
+        self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 3)
 
         return area, obj_center_camera, x_axis_camera, y_axis_camera
 
@@ -314,8 +372,7 @@ class MaskRCNNNode(object):
     def build_marker_msg(self, id, center, axis, r, g, b, description):
         axis_marker = Marker()
 
-        # axis_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
-        axis_marker.header.frame_id = "basler_ace_rgb_sensor_calibrated"
+        axis_marker.header.frame_id = FRAME_ID
         axis_marker.header.stamp = rospy.Time()
         axis_marker.ns = "mask_rcnn_detected_" + description
         axis_marker.type = Marker.ARROW
@@ -340,8 +397,7 @@ class MaskRCNNNode(object):
     def delete_all_markers(self):
         delete_marker = Marker()
 
-        # delete_marker.header.frame_id = "realsense_rgb_sensor_calibrated"
-        delete_marker.header.frame_id = "basler_ace_rgb_sensor_calibrated"
+        delete_marker.header.frame_id = FRAME_ID
         delete_marker.header.stamp = rospy.Time()
         delete_marker.type = Marker.ARROW
         delete_marker.action = Marker.DELETEALL
@@ -357,14 +413,41 @@ class MaskRCNNNode(object):
         # Here we lengthen the arrow by a factor of scale
         q[0] = p[0] - scale * hypotenuse * cos(angle)
         q[1] = p[1] - scale * hypotenuse * sin(angle)
-        cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 1, cv2.LINE_AA)
+        cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 3, cv2.LINE_AA)
         # create the arrow hooks
         p[0] = q[0] + 9 * cos(angle + pi / 4)
         p[1] = q[1] + 9 * sin(angle + pi / 4)
-        cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 1, cv2.LINE_AA)
+        cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 3, cv2.LINE_AA)
         p[0] = q[0] + 9 * cos(angle - pi / 4)
         p[1] = q[1] + 9 * sin(angle - pi / 4)
-        cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 1, cv2.LINE_AA)
+        cv2.line(img, (int(p[0]), int(p[1])), (int(q[0]), int(q[1])), colour, 3, cv2.LINE_AA)
+
+    def visualize(self, result, image):
+        from matplotlib.backends.backend_agg import FigureCanvasAgg
+        from matplotlib.figure import Figure
+        import matplotlib.pyplot as plt
+
+        height, width = image.shape[:2]
+        plt.rcParams["figure.subplot.left"] = 0
+        plt.rcParams["figure.subplot.bottom"] = 0
+        plt.rcParams["figure.subplot.right"] = 1
+        plt.rcParams["figure.subplot.top"] = 1
+
+        fig = Figure(figsize=(width/100,height/100))
+        # fig = Figure()
+        canvas = FigureCanvasAgg(fig)
+        axes = fig.gca()
+        # axes = fig.add_axes([0.,0.,1.,1.])
+        visualize.display_instances(image, result['rois'], result['masks'],
+                                    result['class_ids'], self.class_names,
+                                    result['scores'], ax=axes)
+        #fig.tight_layout()
+        canvas.draw()
+        result = np.fromstring(canvas.tostring_rgb(), dtype='uint8')
+
+        _, _, w, h = fig.bbox.bounds
+        result = result.reshape((int(h), int(w), 3))
+        return result
 
 def main():
     rospy.init_node('mask_rcnn')
