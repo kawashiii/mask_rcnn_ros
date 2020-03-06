@@ -239,13 +239,17 @@ class MaskRCNNNode(object):
             result_msg.axes.append(x_axis_stamped)
             result_msg.normals.append(z_axis_stamped)            
 
-            x_axis_marker = self.build_marker_msg(FRAME_ID, i, center, x_axis, 1.0, 0.0, 0.0, "x_axis")
-            y_axis_marker = self.build_marker_msg(FRAME_ID, i, center, y_axis, 0.0, 1.0, 0.0, "y_axis")
-            z_axis_marker = self.build_marker_msg(FRAME_ID, i, center, z_axis, 0.0, 0.0, 1.0, "z_axis")
+            x_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, i, center, x_axis, 1.0, 0.0, 0.0, "x_axis")
+            y_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, i, center, y_axis, 0.0, 1.0, 0.0, "y_axis")
+            z_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, i, center, z_axis, 0.0, 0.0, 1.0, "z_axis")
+           
+            text_marker = self.build_marker_msg(FRAME_ID, Marker.TEXT_VIEW_FACING, i, center, z_axis, 1.0, 1.0, 1.0, "id_text")
+
             axes_msg.markers.append(x_axis_marker)
             axes_msg.markers.append(y_axis_marker)
             axes_msg.markers.append(z_axis_marker)
-
+            axes_msg.markers.append(text_marker)
+            
             result_msg.ids.append(result_msg.count)
             result_msg.count += 1
 
@@ -276,7 +280,7 @@ class MaskRCNNNode(object):
             rospy.logerr("Service calll failed: ",e)
 
         for i, (center, normal) in enumerate(zip(res.centers, res.normals)):
-            normal_marker = self.build_marker_msg(center.header.frame_id, i, center.point, normal.vector, 1.0, 1.0, 0.0, "normal")
+            normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 1.0, 1.0, 0.0, "normal")
             axes_msg.markers.append(normal_marker)
         
 
@@ -402,24 +406,35 @@ class MaskRCNNNode(object):
 
         return center_depth, x_axis_depth, y_axis_depth
 
-    def build_marker_msg(self, frame_id, marker_id, center, axis, r, g, b, description):
+    def build_marker_msg(self, frame_id, marker_type, marker_id, center, axis, r, g, b, description):
         axis_marker = Marker()
 
         axis_marker.header.frame_id = frame_id
         axis_marker.header.stamp = rospy.Time()
         axis_marker.ns = "mask_rcnn_detected_" + description
-        axis_marker.type = Marker.ARROW
+        axis_marker.type = marker_type
         axis_marker.action = Marker.ADD
         axis_marker.frame_locked = 1
         axis_marker.scale.x = 0.01
         axis_marker.scale.y = 0.01
         axis_marker.scale.z = 0.01
+        if marker_type == Marker.TEXT_VIEW_FACING:
+            axis_marker.scale.x = 0.08
+            axis_marker.scale.y = 0.08
+            axis_marker.scale.z = 0.08
         axis_marker.color.a = 1.0
         axis_marker.color.r = r
         axis_marker.color.g = g
         axis_marker.color.b = b
         axis_marker.id = marker_id
         axis_marker.text = str(axis_marker.id)
+
+        if marker_type == Marker.TEXT_VIEW_FACING:
+            axis_marker.pose.position.x = center.x + axis.x * 0.05
+            axis_marker.pose.position.y = center.y + axis.y * 0.05
+            axis_marker.pose.position.z = center.z - 0.01 + axis.z * 0.05
+            return axis_marker
+
         start_point = center
         # end_point = x_axis
         end_point = Point(center.x + axis.x * 0.05, center.y + axis.y * 0.05, center.z + axis.z * 0.05)
