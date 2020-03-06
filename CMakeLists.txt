@@ -61,6 +61,7 @@ add_message_files(
 add_service_files(
   FILES
   MaskRCNNSrv.srv
+  GetNormal.srv
 )
 
 ## Generate actions in the 'action' folder
