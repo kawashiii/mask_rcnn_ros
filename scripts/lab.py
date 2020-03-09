@@ -38,7 +38,7 @@ EPOCH = 50
 #    'cleanser', 'jerry', 'dishcup', 'bottle'
 #]
 
-class_names = ['BG', 'choice']
+class_names = ['BG', 'meltykiss']
 
 ############################################################
 #  Configurations
