@@ -35,7 +35,7 @@ from mrcnn import model as modellib
 from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
-MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_choice.h5")
+MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_meltykiss.h5")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
@@ -239,11 +239,11 @@ class MaskRCNNNode(object):
             result_msg.axes.append(x_axis_stamped)
             result_msg.normals.append(z_axis_stamped)            
 
-            x_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, i, center, x_axis, 1.0, 0.0, 0.0, "x_axis")
-            y_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, i, center, y_axis, 0.0, 1.0, 0.0, "y_axis")
-            z_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, i, center, z_axis, 0.0, 0.0, 1.0, "z_axis")
+            x_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, result_msg.count, center, x_axis, 1.0, 0.0, 0.0, "x_axis")
+            y_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, result_msg.count, center, y_axis, 0.0, 1.0, 0.0, "y_axis")
+            z_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, result_msg.count, center, z_axis, 0.0, 0.0, 1.0, "z_axis")
            
-            text_marker = self.build_marker_msg(FRAME_ID, Marker.TEXT_VIEW_FACING, i, center, z_axis, 1.0, 1.0, 1.0, "id_text")
+            text_marker = self.build_marker_msg(FRAME_ID, Marker.TEXT_VIEW_FACING, result_msg.count, center, z_axis, 1.0, 1.0, 1.0, "id_text")
 
             axes_msg.markers.append(x_axis_marker)
             axes_msg.markers.append(y_axis_marker)
@@ -279,8 +279,12 @@ class MaskRCNNNode(object):
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
 
+        result_msg.centers = []
+        result_msg.normals = []
         for i, (center, normal) in enumerate(zip(res.centers, res.normals)):
-            normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 1.0, 1.0, 0.0, "normal")
+            result_msg.normals.append(normal)
+            result_msg.centers.append(center)
+            normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 0.5, 0.0, 0.5, "normal")
             axes_msg.markers.append(normal_marker)
         
 
@@ -419,9 +423,9 @@ class MaskRCNNNode(object):
         axis_marker.scale.y = 0.01
         axis_marker.scale.z = 0.01
         if marker_type == Marker.TEXT_VIEW_FACING:
-            axis_marker.scale.x = 0.08
-            axis_marker.scale.y = 0.08
-            axis_marker.scale.z = 0.08
+            axis_marker.scale.x = 0.04
+            axis_marker.scale.y = 0.04
+            axis_marker.scale.z = 0.04
         axis_marker.color.a = 1.0
         axis_marker.color.r = r
         axis_marker.color.g = g

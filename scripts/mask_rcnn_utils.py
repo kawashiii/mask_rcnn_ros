@@ -5,6 +5,7 @@ use pcl function to compute the normal of the surface
 """""""""
 # import open3d as o3d
 # from open3d.geometry import OrientedBoundingBox
+import time
 import numpy as np
 import rospy
 #import pcl
@@ -22,7 +23,7 @@ from mask_rcnn_ros.srv import GetNormal, GetNormalResponse
 class MaskRCNNUtils(object):
     def __init__(self):
         self.listener = tf.TransformListener()
-        self.pc = None
+        self.is_preprocessing = False
 
     def run(self):
         rospy.Subscriber("/phoxi_camera/pointcloud", PointCloud2, self.pointcloud_callback)
@@ -31,6 +32,8 @@ class MaskRCNNUtils(object):
         rospy.spin()
 
     def pointcloud_callback(self, data):
+        start_preprocess = time.time()
+        self.is_preprocessing = True
         rospy.loginfo("Subscribed point cloud")
         pc = ros_numpy.numpify(data)
         r, c = pc.shape
@@ -44,7 +47,10 @@ class MaskRCNNUtils(object):
         p.points = o3d.utility.Vector3dVector(points.reshape(-1, 3))
         self.pc = p.voxel_down_sample(voxel_size=0.002)
         self.estimate_normals()
-        rospy.loginfo("Finished Down Sampling and Estimating Normals")
+        end_preprocess = time.time()
+        preprocess_time = end_preprocess - start_preprocess
+        self.is_preprocessing = False
+        rospy.loginfo("%s[s] (Preprocess time)", round(preprocess_time, 3))
         #o3d.io.write_point_cloud("./test_o3d.ply", self.pc)
         
         # p = pcl.PointCloud(np.array(points.reshape(-1, 3), dtype=np.float32))
@@ -53,7 +59,7 @@ class MaskRCNNUtils(object):
         # self.pc = sor.filter()
 
     def estimate_normals(self):
-        param = o3d.geometry.KDTreeSearchParamHybrid(radius=0.035, max_nn=30)
+        param = o3d.geometry.KDTreeSearchParamHybrid(radius=0.02, max_nn=50)
         self.pc.estimate_normals(search_param=param)
         # o3d.estimate_normals(self.pc, search_param=param)
         # feature = self.pc.make_NormalEstimation()
@@ -61,9 +67,16 @@ class MaskRCNNUtils(object):
         # normals = feature.compute()
     
     def get_normal(self, pts_msg):
+        start_get_normal = time.time()
         rospy.loginfo("Get Normal Service was called.")
         res = GetNormalResponse()
 
+        rospy.loginfo("Waiting for preprocessing point cloud")
+        while not rospy.is_shutdown():
+            if not self.is_preprocessing:
+                break
+        
+        rospy.loginfo("Extracting normal around the center")
         for pt in pts_msg.centers:
             center_stamped = self.listener.transformPoint("PhoXi3Dscanner_sensor", pt)
             np_center = np.array([center_stamped.point.x, center_stamped.point.y, center_stamped.point.z])
@@ -84,6 +97,9 @@ class MaskRCNNUtils(object):
             res.centers.append(center_stamped)
             res.normals.append(normal_stamped)
             
+        end_get_normal = time.time()
+        get_normal_time = end_get_normal - start_get_normal
+        rospy.loginfo("%s[s] (Service 'get_normal' time)", round(get_normal_time, 3))
         return res
 
     # center: [x, y, z] from (1544, 2064, 3)
