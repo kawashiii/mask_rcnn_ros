@@ -23,7 +23,7 @@ from mask_rcnn_ros.srv import GetNormal, GetNormalResponse
 class MaskRCNNUtils(object):
     def __init__(self):
         self.listener = tf.TransformListener()
-        self.is_preprocessing = False
+        self.is_subscriber_called = False
 
     def run(self):
         rospy.Subscriber("/phoxi_camera/pointcloud", PointCloud2, self.pointcloud_callback)
@@ -32,8 +32,12 @@ class MaskRCNNUtils(object):
         rospy.spin()
 
     def pointcloud_callback(self, data):
+        # Skip old msg
+        if (rospy.get_time() > data.header.stamp.secs + 60):
+            rospy.logwarn("Skip old point cloud msg")
+            return
+
         start_preprocess = time.time()
-        self.is_preprocessing = True
         rospy.loginfo("Subscribed point cloud")
         pc = ros_numpy.numpify(data)
         r, c = pc.shape
@@ -49,8 +53,8 @@ class MaskRCNNUtils(object):
         self.estimate_normals()
         end_preprocess = time.time()
         preprocess_time = end_preprocess - start_preprocess
-        self.is_preprocessing = False
         rospy.loginfo("%s[s] (Preprocess time)", round(preprocess_time, 3))
+        self.is_subscriber_called = True
         #o3d.io.write_point_cloud("./test_o3d.ply", self.pc)
         
         # p = pcl.PointCloud(np.array(points.reshape(-1, 3), dtype=np.float32))
@@ -72,9 +76,12 @@ class MaskRCNNUtils(object):
         res = GetNormalResponse()
 
         rospy.loginfo("Waiting for preprocessing point cloud")
+        r = rospy.Rate(500)
         while not rospy.is_shutdown():
-            if not self.is_preprocessing:
+            if self.is_subscriber_called:
+                self.is_subscriber_called = False
                 break
+            r.sleep()
         
         rospy.loginfo("Extracting normal around the center")
         for pt in pts_msg.centers:
@@ -100,6 +107,7 @@ class MaskRCNNUtils(object):
         end_get_normal = time.time()
         get_normal_time = end_get_normal - start_get_normal
         rospy.loginfo("%s[s] (Service 'get_normal' time)", round(get_normal_time, 3))
+        print("")
         return res
 
     # center: [x, y, z] from (1544, 2064, 3)
