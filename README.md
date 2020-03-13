@@ -22,7 +22,7 @@ sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-uni
 # gpu
 sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-unix/:/tmp/.X11-unix --gpus all --name mrcnn_ros mrcnn_ros:dev
 ```
-**3. Installation **
+**3. Installation**
 ```
 # Write to Dockerfile
 apt install python-pip software-properties-common ros-kinetic-ros-numpy
