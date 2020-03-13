@@ -22,8 +22,28 @@ sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-uni
 # gpu
 sudo docker run --privileged --net=host -it -e DISPLAY=$DISPLAY -v /tmp/.X11-unix/:/tmp/.X11-unix --gpus all --name mrcnn_ros mrcnn_ros:dev
 ```
+**3. Installation **
+```
+# Write to Dockerfile
+apt install python-pip software-properties-common ros-kinetic-ros-numpy
+python -m pip install --upgrade pip
+python -m pip install open3d scipy
 
-**3. Setting Catkin**
+add-apt-repository ppa:ubuntu-toolchain-r/test
+apt update -y
+apt upgrade -y
+```
+
+**4. catkin init**
+```
+cd /root/catkin_ws/src
+catkin_init_workspace
+cd /root/catkin_ws 
+catkin_make
+source devel/setup.bash
+```
+
+**5. Build cv_bridge for python3**
 ```
 cd /root/catkin_build_ws
 catkin config -DPYTHON_EXECUTABLE=/usr/bin/python3 -DPYTHON_INCLUDE_DIR=/usr/include/python3.5m -DPYTHON_LIBRARY=/usr/lib/x86_64-linux-gnu/libpython3.5m.so
@@ -33,12 +53,6 @@ git clone -b kinetic_lab_config https://github.com/kawashiii/vision_opencv
 cd /root/catkin_build_ws
 catkin build cv_bridge
 source install/setup.bash --extend
-
-cd /root/catkin_ws/src
-catkin_init_workspace
-cd /root/catkin_ws 
-catkin_make
-source devel/setup.bash
 ```
 
 ## Getting Started
