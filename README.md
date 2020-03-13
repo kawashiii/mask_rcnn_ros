@@ -38,7 +38,6 @@ cd /root/catkin_ws/src
 catkin_init_workspace
 cd /root/catkin_ws 
 catkin_make
-cp ~/src/Mask_RCNN/lab/mask_rcnn_lab.h5 ~/catkin_ws/src/mask_rcnn_ros
 source devel/setup.bash
 ```
 
