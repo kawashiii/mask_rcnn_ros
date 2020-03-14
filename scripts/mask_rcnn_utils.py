@@ -24,6 +24,7 @@ class MaskRCNNUtils(object):
     def __init__(self):
         self.listener = tf.TransformListener()
         self.is_subscriber_called = False
+        self.subscribed_time = 0
 
     def run(self):
         rospy.Subscriber("/phoxi_camera/pointcloud", PointCloud2, self.pointcloud_callback)
@@ -33,29 +34,42 @@ class MaskRCNNUtils(object):
 
     def pointcloud_callback(self, data):
         # Skip old msg
-        if (rospy.get_time() > data.header.stamp.secs + 60):
+        now = rospy.get_time()
+        if (now - data.header.stamp.secs > 60):
+            self.is_subscriber_called = False
             rospy.logwarn("Skip old point cloud msg")
             return
-
+        #if (now - self.subscribed_time < 15):
+        #    rospy.logwarn("Skip continuous point cloud msg")
+        #    return
+        
         start_preprocess = time.time()
         rospy.loginfo("Subscribed point cloud")
         pc = ros_numpy.numpify(data)
-        r, c = pc.shape
-        points = np.zeros((r, c, 3), dtype=np.float32)
+        rc = pc.shape[0]
+        points = np.zeros((rc, 3), dtype=np.float32)
         points[..., 0] = pc['x']
         points[..., 1] = pc['y']
         points[..., 2] = pc['z']
+        #normals = np.zeros((rc, 3), dtype=np.float32)
+        #normals[..., 0] = pc['normal_x']
+        #normals[..., 1] = pc['normal_y']
+        #normals[..., 2] = pc['normal_z']
         p = o3d.geometry.PointCloud()
-        #print(points.shape)
-        #print(points.reshape(-1, 3).shape)
         p.points = o3d.utility.Vector3dVector(points.reshape(-1, 3))
-        self.pc = p.voxel_down_sample(voxel_size=0.002)
+        #p.normals = o3d.utility.Vector3dVector(normals.reshape(-1, 3))
+        self.pc = p        
+        #self.pc = p.voxel_down_sample(voxel_size=0.002)
+        #o3d.io.write_point_cloud("./test.ply", self.pc)
+        #self.outlier_remove()
+        #o3d.io.write_point_cloud("./test_outlier_removed.ply", self.pc)
         self.estimate_normals()
         end_preprocess = time.time()
         preprocess_time = end_preprocess - start_preprocess
         rospy.loginfo("%s[s] (Preprocess time)", round(preprocess_time, 3))
+        self.subscribed_time = now
+  
         self.is_subscriber_called = True
-        #o3d.io.write_point_cloud("./test_o3d.ply", self.pc)
         
         # p = pcl.PointCloud(np.array(points.reshape(-1, 3), dtype=np.float32))
         # sor = p.make_voxel_grid_filter()
@@ -69,14 +83,18 @@ class MaskRCNNUtils(object):
         # feature = self.pc.make_NormalEstimation()
         # feature.set_KSearch(3)
         # normals = feature.compute()
-    
+
+    def outlier_remove(self):
+        cl, ind = self.pc.remove_statistical_outlier(nb_neighbors=200, std_ratio=2.0)
+        self.pc = self.pc.select_down_sample(ind)    
+
     def get_normal(self, pts_msg):
         start_get_normal = time.time()
         rospy.loginfo("Get Normal Service was called.")
         res = GetNormalResponse()
 
         rospy.loginfo("Waiting for preprocessing point cloud")
-        r = rospy.Rate(500)
+        r = rospy.Rate(10)
         while not rospy.is_shutdown():
             if self.is_subscriber_called:
                 self.is_subscriber_called = False

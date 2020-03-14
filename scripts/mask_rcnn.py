@@ -19,7 +19,6 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from std_msgs.msg import UInt8MultiArray
 from std_msgs.msg import Int32
-from phoxi_camera.srv import *
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse, GetNormal, GetNormalResponse
 from icp_registration.msg import Container
@@ -35,7 +34,7 @@ from mrcnn import model as modellib
 from mrcnn import visualize
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
-MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_meltykiss.h5")
+MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_caloriemate.h5")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
@@ -89,8 +88,9 @@ class MaskRCNNNode(object):
         # Define publisher
         self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1, latch=True)
         self.visualization_pub = rospy.Publisher(rospy.get_name() + '/visualization', Image, queue_size=1, latch=True)
+        self.vis_depth_pub = rospy.Publisher(rospy.get_name() + '/depth', Image, queue_size=1, latch=True)
         self.vis_picking_object_pub = rospy.Publisher(rospy.get_name() + '/vis_picking_object', Image, queue_size=1, latch=True)
-        self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1)
+        self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1, latch=True)
         self.trigger_pub = rospy.Publisher(rospy.get_name() + '/trigger_id', Int32, queue_size=1, latch=True)
         self.vis_container_edge = rospy.Publisher(rospy.get_name() + "/vis_container_edge", Image, queue_size=1, latch=True)
 
@@ -199,6 +199,7 @@ class MaskRCNNNode(object):
         result_msg.count = 0
 
         vis_image = np.copy(image)
+        vis_depth = cv2.cvtColor(depth, cv2.COLOR_GRAY2BGR)
         axes_msg = MarkerArray()
         delete_marker = self.delete_all_markers()
         axes_msg.markers.append(delete_marker)
@@ -206,7 +207,7 @@ class MaskRCNNNode(object):
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             rospy.loginfo("'%s' is detected", self.class_names[result['class_ids'][i]])
             mask = result['masks'][:,:,i].astype(np.uint8)
-            area, center, x_axis, y_axis = self.estimate_object_attribute(mask, depth, vis_image)
+            area, center, x_axis, y_axis = self.estimate_object_attribute(mask, depth, vis_image, vis_depth)
             if (area, center, x_axis, y_axis) == (0, 0, 0, 0):
                 continue
 
@@ -245,9 +246,9 @@ class MaskRCNNNode(object):
            
             text_marker = self.build_marker_msg(FRAME_ID, Marker.TEXT_VIEW_FACING, result_msg.count, center, z_axis, 1.0, 1.0, 1.0, "id_text")
 
-            axes_msg.markers.append(x_axis_marker)
-            axes_msg.markers.append(y_axis_marker)
-            axes_msg.markers.append(z_axis_marker)
+            #axes_msg.markers.append(x_axis_marker)
+            #axes_msg.markers.append(y_axis_marker)
+            #axes_msg.markers.append(z_axis_marker)
             axes_msg.markers.append(text_marker)
             
             result_msg.ids.append(result_msg.count)
@@ -303,11 +304,16 @@ class MaskRCNNNode(object):
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
         self.visualization_pub.publish(image_msg)
 
+        cv_result = np.zeros(shape=vis_depth.shape, dtype=np.uint8)
+        cv2.convertScaleAbs(vis_depth, cv_result)
+        depth_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+        self.vis_depth_pub.publish(depth_msg)
+
         rospy.loginfo("Published msg completely")
 
         return result_msg
 
-    def estimate_object_attribute(self, mask, depth, vis_image):
+    def estimate_object_attribute(self, mask, depth, vis_image, vis_depth):
         ret, thresh = cv2.threshold(mask, 0.5, 1.0, cv2.THRESH_BINARY)
         contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
@@ -339,9 +345,13 @@ class MaskRCNNNode(object):
         np_obj_center_pixel = np.array(obj_center_pixel, dtype=self.camera_matrix.dtype)
         undistorted_center = cv2.undistortPoints(np_obj_center_pixel, self.camera_matrix, self.dist_coeffs)
         undistorted_center = undistorted_center.reshape(2)
+        undistorted_x = int(self.camera_matrix[0][0]*undistorted_center[0] + self.camera_matrix[0][2])
+        undistorted_y = int(self.camera_matrix[1][1]*undistorted_center[1] + self.camera_matrix[1][2])
+        
 
         # Check center point of Depth Value
         obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, obj_center_pixel, unit_x_axis_pixel, unit_y_axis_pixel)
+        #obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, (undistorted_x, undistorted_y), unit_x_axis_pixel, unit_y_axis_pixel)
         if obj_center_depth == 0.0 or x_axis_depth == 0.0 or y_axis_depth == 0.0:
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0, 0)
@@ -383,6 +393,9 @@ class MaskRCNNNode(object):
         self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 3)
         self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 3)
 
+        cv2.circle(vis_depth, obj_center_pixel, 10, (255, 0, 0), 3)
+        cv2.circle(vis_depth, (undistorted_x, undistorted_y), 10, (0, 0, 255), 3)
+
         return area, obj_center_camera, x_axis_camera, y_axis_camera
 
     def get_depth(self, depth, center, x_axis, y_axis):
@@ -405,8 +418,9 @@ class MaskRCNNNode(object):
                         depth_array.append(depth[rect_y_min + h, rect_x_min + w])
                 if len(depth_array) == 0:
                     center_depth = 0
+                else: 
+                    center_depth = sum(depth_array) / len(depth_array) / 1000
                     rospy.loginfo("This object's depth value is averaged around the center point")
-                else: center_depth = sum(depth_array) / len(depth_array) / 1000
 
         return center_depth, x_axis_depth, y_axis_depth
 
