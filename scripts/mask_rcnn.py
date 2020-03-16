@@ -125,7 +125,7 @@ class MaskRCNNNode(object):
             projected_point = projected_point[0].reshape(-1)
             pts.append((int(projected_point[0]), int(projected_point[1])))
 
-        image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, 10)
+        image_msg = rospy.wait_for_message("/pylon_camera_node/image_raw", Image, 10)
         img = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
 
         for pt in pts:
@@ -152,7 +152,7 @@ class MaskRCNNNode(object):
 
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, timeout)
+        image_msg = rospy.wait_for_message("/pylon_camera_node/image_raw", Image, timeout)
         depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, timeout)
         rospy.loginfo("Acquired frame")
 
