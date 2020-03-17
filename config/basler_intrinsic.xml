@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <opencv_storage>
-<calibration_time>"2020年01月22日 09時37分01秒"</calibration_time>
+<calibration_time>"2020年03月17日 12時39分40秒"</calibration_time>
 <image_width>2048</image_width>
 <image_height>1536</image_height>
 <flags>0</flags>
@@ -9,16 +9,15 @@
   <cols>3</cols>
   <dt>d</dt>
   <data>
-    3703.93 0. 1054.75 0.
-    3706.25 738.656 0. 0. 1.</data></camera_matrix>
+    3.7229974450981172e+03 0. 1.0432050520400824e+03 0.
+    3.7244455466416030e+03 7.6267614058622689e+02 0. 0. 1.</data></camera_matrix>
 <distortion_coefficients type_id="opencv-matrix">
   <rows>1</rows>
   <cols>5</cols>
   <dt>d</dt>
   <data>
-    -0.199996 -0.725273
-    5.02987e-05 0.00048132
-    10.1693</data></distortion_coefficients>
-<avg_reprojection_error>1.4448346934094344e-01</avg_reprojection_error>
+    -2.0435404676184812e-01 6.1586771044741861e-02
+    -4.0810423344922937e-05 9.3317853673683684e-04
+    5.5481328578985167e-01</data></distortion_coefficients>
+<avg_reprojection_error>1.2735040414471804e-01</avg_reprojection_error>
 </opencv_storage>
-
