@@ -20,8 +20,9 @@ from visualization_msgs.msg import MarkerArray
 from std_msgs.msg import UInt8MultiArray
 from std_msgs.msg import Int32
 from mask_rcnn_ros.msg import MaskRCNNMsg
-from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse, GetNormal, GetNormalResponse
-from icp_registration.msg import Container
+from mask_rcnn_ros.srv import *
+#from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse, GetNormal, GetNormalResponse
+#from icp_registration.msg import Container
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import lab
@@ -32,9 +33,11 @@ from cv_bridge import CvBridge
 from mrcnn import utils
 from mrcnn import model as modellib
 from mrcnn import visualize
+from keras.backend import tensorflow_backend as backend
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
-MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_caloriemate.h5")
+CLASS_NAME = "caloriemate"
+MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
@@ -70,7 +73,7 @@ class MaskRCNNNode(object):
         self.cv_bridge = CvBridge()
 
         config = InferenceConfig()
-        config.display()
+        #config.display()
 
         # Create model object in inference mode.
         self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
@@ -82,7 +85,7 @@ class MaskRCNNNode(object):
         self.camera_matrix = fs.getNode("camera_matrix").mat()
         self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
 
-        self.class_names = lab.class_names
+        self.class_names = ['BG', CLASS_NAME]
     
     def run(self):
         # Define publisher
@@ -96,56 +99,42 @@ class MaskRCNNNode(object):
 
         # Define subscriber
         # self.result_sub = rospy.Subscriber("/phoxi_camera/external_camera_texture", Image, self.callback_get_image)
-        self.container_sub = rospy.Subscriber("icp_registration/container_position", Container, self.callback_get_container_edge)
+        # self.container_sub = rospy.Subscriber("icp_registration/container_position", Container, self.callback_get_container_edge)
 
         # Define service
         self.result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
+        self.set_model_srv = rospy.Service(rospy.get_name() + "/set_model", SetModel, self.set_model)
 
         rospy.loginfo("Ready to be called service")
         rospy.spin()
 
-    def callback_get_image(self, image_msg):
-        depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, 10)
-        trigger_id = rospy.wait_for_message("/phoxi_camera/trigger_id", Int32, 10)
-        rospy.loginfo("TriggerID: %s", trigger_id.data)       
- 
-        start_build_msg = time.time() 
-        result_msg = self.detect_objects(image_msg, depth_msg)
-        self.trigger_pub.publish(trigger_id.data)
-        end_build_msg = time.time() 
-        build_msg_time = end_build_msg - start_build_msg
-        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
+    def set_model(self, req):
+        res = SetModelResponse()
+    
+        CLASS_NAME = req.class_name
+        MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
+        
+        config = InferenceConfig()
+        #config.display()
+        # Create model object in inference mode.
+        try:
+            backend.clear_session()
+            self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
+            self.model.load_weights(MODEL, by_name=True)
+            self.model.keras_model._make_predict_function()
+        except Exception as e:
+            res.message = str(e)
+            res.success = False
+            rospy.logerr(e)
+            return res
+        
+        self.class_names = ['BG', CLASS_NAME]
+        rospy.loginfo("Finished setting " + CLASS_NAME + " model")
 
-    def callback_get_container_edge(self, msg):
-        rospy.loginfo("CallBack container position")
-        pts = []
-        for p in msg.edges:
-            edge = np.array([p.point.x, p.point.y, p.point.z], dtype=float)
-            projected_point = cv2.projectPoints(edge, (0,0,0), (0,0,0), self.camera_matrix, self.dist_coeffs)
-            projected_point = projected_point[0].reshape(-1)
-            pts.append((int(projected_point[0]), int(projected_point[1])))
+        res.message = "OK"
+        res.success = True
 
-        image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, 10)
-        img = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
-
-        for pt in pts:
-            cv2.circle(img, pt, 8, (0, 0, 255), -1)
-
-        cv2.line(img, pts[0], pts[1], (0, 0, 255), 5)
-        cv2.line(img, pts[1], pts[2], (0, 0, 255), 5)
-        cv2.line(img, pts[2], pts[3], (0, 0, 255), 5)
-        cv2.line(img, pts[3], pts[0], (0, 0, 255), 5)
-        cv2.line(img, pts[4], pts[5], (0, 0, 255), 5)
-        cv2.line(img, pts[5], pts[6], (0, 0, 255), 5)
-        cv2.line(img, pts[6], pts[7], (0, 0, 255), 5)
-        cv2.line(img, pts[7], pts[4], (0, 0, 255), 5)
-        cv2.line(img, pts[0], pts[4], (0, 0, 255), 5)
-        cv2.line(img, pts[1], pts[5], (0, 0, 255), 5)
-        cv2.line(img, pts[2], pts[6], (0, 0, 255), 5)
-        cv2.line(img, pts[3], pts[7], (0, 0, 255), 5)
-
-        image_msg = self.cv_bridge.cv2_to_imgmsg(img, 'bgr8')
-        self.vis_container_edge.publish(image_msg)
+        return res
 
     def wait_frame(self, req):
         res = MaskRCNNSrvResponse()
@@ -514,6 +503,50 @@ class MaskRCNNNode(object):
         _, _, w, h = fig.bbox.bounds
         result = result.reshape((int(h), int(w), 3))
         return result
+
+    #def callback_get_image(self, image_msg):
+    #    depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, 10)
+    #    trigger_id = rospy.wait_for_message("/phoxi_camera/trigger_id", Int32, 10)
+    #    rospy.loginfo("TriggerID: %s", trigger_id.data)       
+ 
+    #    start_build_msg = time.time() 
+    #    result_msg = self.detect_objects(image_msg, depth_msg)
+    #    self.trigger_pub.publish(trigger_id.data)
+    #    end_build_msg = time.time() 
+    #    build_msg_time = end_build_msg - start_build_msg
+    #    rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
+
+    #def callback_get_container_edge(self, msg):
+    #    rospy.loginfo("CallBack container position")
+    #    pts = []
+    #    for p in msg.edges:
+    #        edge = np.array([p.point.x, p.point.y, p.point.z], dtype=float)
+    #        projected_point = cv2.projectPoints(edge, (0,0,0), (0,0,0), self.camera_matrix, self.dist_coeffs)
+    #        projected_point = projected_point[0].reshape(-1)
+    #        pts.append((int(projected_point[0]), int(projected_point[1])))
+
+    #    image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, 10)
+    #    img = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+
+    #    for pt in pts:
+    #        cv2.circle(img, pt, 8, (0, 0, 255), -1)
+
+    #    cv2.line(img, pts[0], pts[1], (0, 0, 255), 5)
+    #    cv2.line(img, pts[1], pts[2], (0, 0, 255), 5)
+    #    cv2.line(img, pts[2], pts[3], (0, 0, 255), 5)
+    #    cv2.line(img, pts[3], pts[0], (0, 0, 255), 5)
+    #    cv2.line(img, pts[4], pts[5], (0, 0, 255), 5)
+    #    cv2.line(img, pts[5], pts[6], (0, 0, 255), 5)
+    #    cv2.line(img, pts[6], pts[7], (0, 0, 255), 5)
+    #    cv2.line(img, pts[7], pts[4], (0, 0, 255), 5)
+    #    cv2.line(img, pts[0], pts[4], (0, 0, 255), 5)
+    #    cv2.line(img, pts[1], pts[5], (0, 0, 255), 5)
+    #    cv2.line(img, pts[2], pts[6], (0, 0, 255), 5)
+    #    cv2.line(img, pts[3], pts[7], (0, 0, 255), 5)
+
+    #    image_msg = self.cv_bridge.cv2_to_imgmsg(img, 'bgr8')
+    #    self.vis_container_edge.publish(image_msg)
+
 
 def main():
     rospy.init_node('mask_rcnn')

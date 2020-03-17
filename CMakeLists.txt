@@ -62,6 +62,7 @@ add_service_files(
   FILES
   MaskRCNNSrv.srv
   GetNormal.srv
+  SetModel.srv
 )
 
 ## Generate actions in the 'action' folder
