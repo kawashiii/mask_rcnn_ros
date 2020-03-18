@@ -66,6 +66,8 @@ class MaskRCNNNode(object):
         self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
 
         self.class_names = ['BG', CLASS_NAME]
+
+        self.is_service_called = False
     
     def run(self):
         # Define publisher
@@ -82,6 +84,29 @@ class MaskRCNNNode(object):
         self.set_model_srv = rospy.Service(rospy.get_name() + "/set_model", SetModel, self.set_model)
 
         rospy.loginfo("Ready to be called service")
+
+        r = rospy.Rate(10)
+        while not rospy.is_shutdown():
+            if self.is_service_called:
+                vis_original = self.visualize(self.result, self.image)
+                cv_result = np.zeros(shape=self.image.shape, dtype=np.uint8)
+                cv2.convertScaleAbs(vis_original, cv_result)
+                msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+                self.vis_original_pub.publish(msg)
+
+                cv_result = np.zeros(shape=self.vis_processed_result.shape, dtype=np.uint8)
+                cv2.convertScaleAbs(self.vis_processed_result, cv_result)
+                msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+                self.vis_processed_pub.publish(msg)
+
+                cv_result = np.zeros(shape=self.vis_depth.shape, dtype=np.uint8)
+                cv2.convertScaleAbs(self.vis_depth, cv_result)
+                msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+                self.vis_depth_pub.publish(msg)
+                self.is_service_called = False           
+ 
+            r.sleep()
+
         rospy.spin()
 
     def set_model(self, req):
@@ -150,9 +175,10 @@ class MaskRCNNNode(object):
         # Back to BGR for visualization and publish
         np_image = cv2.cvtColor(np_image, cv2.COLOR_RGB2BGR)
 
-        result = results[0]
-        result_msg = self.build_result_msg(image_msg.header, result, np_image, np_depth)
+        self.result = results[0]
+        result_msg = self.build_result_msg(image_msg.header, results[0], np_image, np_depth)
 
+        self.is_service_called = True
         return result_msg
 
     def build_result_msg(self, msg_header, result, image, depth):
@@ -162,8 +188,8 @@ class MaskRCNNNode(object):
         result_msg.header.frame_id = FRAME_ID
         result_msg.count = 0
 
-        vis_image = np.copy(image)
-        vis_depth = cv2.cvtColor(depth, cv2.COLOR_GRAY2BGR)
+        self.vis_processed_result = np.copy(image)
+        self.vis_depth = cv2.cvtColor(depth, cv2.COLOR_GRAY2BGR)
         axes_msg = MarkerArray()
         delete_marker = self.delete_all_markers()
         axes_msg.markers.append(delete_marker)
@@ -171,7 +197,7 @@ class MaskRCNNNode(object):
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             rospy.loginfo("ID:%s '%s' is detected", str(i), self.class_names[result['class_ids'][i]])
             mask = result['masks'][:,:,i].astype(np.uint8)
-            area, center, x_axis, y_axis = self.estimate_object_attribute(mask, depth, vis_image, vis_depth)
+            area, center, x_axis, y_axis = self.estimate_object_attribute(mask, depth)
             if (area, center, x_axis, y_axis) == (0, 0, 0, 0):
                 continue
 
@@ -208,12 +234,10 @@ class MaskRCNNNode(object):
             y_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, result_msg.count, center, y_axis, 0.0, 1.0, 0.0, "y_axis")
             z_axis_marker = self.build_marker_msg(FRAME_ID, Marker.ARROW, result_msg.count, center, z_axis, 0.0, 0.0, 1.0, "z_axis")
            
-            text_marker = self.build_marker_msg(FRAME_ID, Marker.TEXT_VIEW_FACING, result_msg.count, center, z_axis, 1.0, 1.0, 1.0, "id_text")
 
             #axes_msg.markers.append(x_axis_marker)
             #axes_msg.markers.append(y_axis_marker)
             #axes_msg.markers.append(z_axis_marker)
-            axes_msg.markers.append(text_marker)
             
             result_msg.ids.append(result_msg.count)
             result_msg.count += 1
@@ -237,10 +261,10 @@ class MaskRCNNNode(object):
             #caption = "{} {:.3f}".format(class_name, score) if score else class_name
             id_caption = "ID:" + str(i)
             class_caption = class_name + " " +  str(round(score, 3))
-            cv2.putText(vis_image, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
-            cv2.putText(vis_image, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
-            cv2.putText(vis_depth, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
-            cv2.putText(vis_depth, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
+            cv2.putText(self.vis_processed_result, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
+            cv2.putText(self.vis_processed_result, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
+            cv2.putText(self.vis_depth, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
+            cv2.putText(self.vis_depth, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
 
         # service call get_normal in mask_rcnn_utils.py
         try:
@@ -255,38 +279,20 @@ class MaskRCNNNode(object):
             result_msg.normals.append(normal)
             result_msg.centers.append(center)
             normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 0.5, 0.0, 0.5, "normal")
+            text_marker = self.build_marker_msg(center.header.frame_id, Marker.TEXT_VIEW_FACING, i, center.point, normal.vector, 1.0, 1.0, 1.0, "id_text")
             axes_msg.markers.append(normal_marker)
+            axes_msg.markers.append(text_marker)
         
         rospy.loginfo("Service Get Normal finished")
 
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
 
-        start_build_image_msg = time.time() 
-        cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
-        cv2.convertScaleAbs(vis_image, cv_result)
-        image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        self.vis_processed_pub.publish(image_msg)
-
-        vis_image = self.visualize(result, image)
-        cv_result = np.zeros(shape=image.shape, dtype=np.uint8)
-        cv2.convertScaleAbs(vis_image, cv_result)
-        image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        self.vis_original_pub.publish(image_msg)
-
-        cv_result = np.zeros(shape=vis_depth.shape, dtype=np.uint8)
-        cv2.convertScaleAbs(vis_depth, cv_result)
-        depth_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        self.vis_depth_pub.publish(depth_msg)
-        end_build_image_msg = time.time() 
-        build_msg_time = end_build_image_msg - start_build_image_msg
-        rospy.loginfo("%s[s] (Building image msg time)", round(build_msg_time, 3))
-
         rospy.loginfo("Published msg completely")
 
         return result_msg
 
-    def estimate_object_attribute(self, mask, depth, vis_image, vis_depth):
+    def estimate_object_attribute(self, mask, depth):
         ret, thresh = cv2.threshold(mask, 0.5, 1.0, cv2.THRESH_BINARY)
         contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
@@ -321,13 +327,12 @@ class MaskRCNNNode(object):
         undistorted_x = int(self.camera_matrix[0][0]*undistorted_center[0] + self.camera_matrix[0][2])
         undistorted_y = int(self.camera_matrix[1][1]*undistorted_center[1] + self.camera_matrix[1][2])
         
-        #cv2.circle(vis_depth, obj_center_pixel, 10, (255, 0, 0), 3)
-        cv2.circle(vis_depth, (undistorted_x, undistorted_y), 5, (0, 0, 255), 3)
-        cv2.drawContours(vis_depth, contours, 0, (255, 255, 0), 6)
+        cv2.circle(self.vis_depth, (undistorted_x, undistorted_y), 5, (0, 0, 255), 3)
+        cv2.drawContours(self.vis_depth, contours, 0, (255, 255, 0), 6)
 
         # Check center point of Depth Value
-        obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, obj_center_pixel, unit_x_axis_pixel, unit_y_axis_pixel)
-        #obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, (undistorted_x, undistorted_y), unit_x_axis_pixel, unit_y_axis_pixel)
+        #obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, obj_center_pixel, unit_x_axis_pixel, unit_y_axis_pixel)
+        obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, (undistorted_x, undistorted_y), unit_x_axis_pixel, unit_y_axis_pixel)
         #if obj_center_depth == 0.0 or x_axis_depth == 0.0 or y_axis_depth == 0.0:
         if obj_center_depth == 0.0:
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
@@ -359,14 +364,13 @@ class MaskRCNNNode(object):
         y_axis_camera = Vector3(y_axis_x/magnitude_x_axis, y_axis_y/magnitude_x_axis, y_axis_z/magnitude_x_axis)
 
         # visualize mask, axis
-        cv2.drawContours(vis_image, contours, 0, (255, 255, 0), 6)
+        cv2.drawContours(self.vis_processed_result, contours, 0, (255, 255, 0), 6)
         cntr = (int(mean[0,0]), int(mean[0,1]))
-        cv2.circle(vis_image, cntr, 10, (255, 0, 255), -1)
+        cv2.circle(self.vis_processed_result, cntr, 10, (255, 0, 255), -1)
         p1 = (cntr[0] + unit_x_axis_pixel[0]*20, cntr[1] + unit_x_axis_pixel[1]*20)
         p2 = (cntr[0] - unit_y_axis_pixel[0]*20, cntr[1] - unit_y_axis_pixel[1]*20)
-        self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 3)
-        self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 3)
-
+        self.drawAxis(self.vis_processed_result, cntr, p1, (0, 0, 255), 3)
+        self.drawAxis(self.vis_processed_result, cntr, p2, (0, 255, 0), 3)
 
         return area, obj_center_camera, x_axis_camera, y_axis_camera
 
