@@ -194,7 +194,7 @@ class MaskRCNNNode(object):
         axes_msg.markers.append(delete_marker)
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
-            rospy.loginfo("'%s' is detected", self.class_names[result['class_ids'][i]])
+            rospy.loginfo("ID:%s '%s' is detected", str(i), self.class_names[result['class_ids'][i]])
             mask = result['masks'][:,:,i].astype(np.uint8)
             area, center, x_axis, y_axis = self.estimate_object_attribute(mask, depth, vis_image, vis_depth)
             if (area, center, x_axis, y_axis) == (0, 0, 0, 0):
@@ -259,8 +259,13 @@ class MaskRCNNNode(object):
             score = result['scores'][i]
             result_msg.scores.append(score)
 
-            caption = "{} {:.3f}".format(class_name, score) if score else class_name
-            cv2.putText(vis_image, caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
+            #caption = "{} {:.3f}".format(class_name, score) if score else class_name
+            id_caption = "ID:" + str(i)
+            class_caption = class_name + " " +  str(round(score, 3))
+            cv2.putText(vis_image, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
+            cv2.putText(vis_image, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
+            cv2.putText(vis_depth, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
+            cv2.putText(vis_depth, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
 
         # service call get_normal in mask_rcnn_utils.py
         try:
@@ -277,6 +282,7 @@ class MaskRCNNNode(object):
             normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 0.5, 0.0, 0.5, "normal")
             axes_msg.markers.append(normal_marker)
         
+        rospy.loginfo("Service Get Normal finished")
 
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
@@ -337,11 +343,15 @@ class MaskRCNNNode(object):
         undistorted_x = int(self.camera_matrix[0][0]*undistorted_center[0] + self.camera_matrix[0][2])
         undistorted_y = int(self.camera_matrix[1][1]*undistorted_center[1] + self.camera_matrix[1][2])
         
+        #cv2.circle(vis_depth, obj_center_pixel, 10, (255, 0, 0), 3)
+        cv2.circle(vis_depth, (undistorted_x, undistorted_y), 5, (0, 0, 255), 3)
+        cv2.drawContours(vis_depth, contours, 0, (255, 255, 0), 6)
 
         # Check center point of Depth Value
         obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, obj_center_pixel, unit_x_axis_pixel, unit_y_axis_pixel)
         #obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, (undistorted_x, undistorted_y), unit_x_axis_pixel, unit_y_axis_pixel)
-        if obj_center_depth == 0.0 or x_axis_depth == 0.0 or y_axis_depth == 0.0:
+        #if obj_center_depth == 0.0 or x_axis_depth == 0.0 or y_axis_depth == 0.0:
+        if obj_center_depth == 0.0:
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0, 0)
 
@@ -382,8 +392,6 @@ class MaskRCNNNode(object):
         self.drawAxis(vis_image, cntr, p1, (0, 0, 255), 3)
         self.drawAxis(vis_image, cntr, p2, (0, 255, 0), 3)
 
-        cv2.circle(vis_depth, obj_center_pixel, 10, (255, 0, 0), 3)
-        cv2.circle(vis_depth, (undistorted_x, undistorted_y), 10, (0, 0, 255), 3)
 
         return area, obj_center_camera, x_axis_camera, y_axis_camera
 
@@ -409,7 +417,7 @@ class MaskRCNNNode(object):
                     center_depth = 0
                 else: 
                     center_depth = sum(depth_array) / len(depth_array) / 1000
-                    rospy.loginfo("This object's depth value is averaged around the center point")
+                    rospy.logwarn("This object's depth value is averaged around the center point")
 
         return center_depth, x_axis_depth, y_axis_depth
 

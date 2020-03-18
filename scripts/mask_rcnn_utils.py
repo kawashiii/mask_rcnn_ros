@@ -93,13 +93,13 @@ class MaskRCNNUtils(object):
         rospy.loginfo("Get Normal Service was called.")
         res = GetNormalResponse()
 
-        rospy.loginfo("Waiting for preprocessing point cloud")
-        r = rospy.Rate(10)
-        while not rospy.is_shutdown():
-            if self.is_subscriber_called:
-                self.is_subscriber_called = False
-                break
-            r.sleep()
+        #rospy.loginfo("Waiting for preprocessing point cloud")
+        #r = rospy.Rate(10)
+        #while not rospy.is_shutdown():
+        #    if self.is_subscriber_called:
+        #        self.is_subscriber_called = False
+        #        break
+        #    r.sleep()
         
         rospy.loginfo("Extracting normal around the center")
         for pt in pts_msg.centers:
