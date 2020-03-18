@@ -21,8 +21,6 @@ from std_msgs.msg import UInt8MultiArray
 from std_msgs.msg import Int32
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import *
-#from mask_rcnn_ros.srv import MaskRCNNSrv, MaskRCNNSrvResponse, GetNormal, GetNormalResponse
-#from icp_registration.msg import Container
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import lab
@@ -41,26 +39,8 @@ MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
 CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
-REGION_X_OFFSET = 0
-REGION_Y_OFFSET = 0
-REGION_WIDTH    = 2048
-REGION_HEIGHT   = 1536
-
 # if the depth of (x, y) is 0, it is approximate depth value around specific pixel
 DEPTH_APPROXIMATE_RANGE = 10
-
-# The edge position of container 
-CONTAINER_EDGE_POSITION = np.array([
-    [0.300, 0.203, 0.000],
-    [0.300, -0.203, 0.000],
-    [-0.300, 0.203, 0.000],
-    [-0.300, -0.203, 0.000],
-    [0.300, 0.203, 0.315],
-    [0.300, -0.203, 0.315],
-    [-0.300, 0.203, 0.315],
-    [-0.300, -0.203, 0.315]
-], dtype=float)
-                               
 
 class InferenceConfig(lab.LabConfig):
     # Set batch size to 1 since we'll be running inference on
@@ -90,16 +70,12 @@ class MaskRCNNNode(object):
     def run(self):
         # Define publisher
         self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1, latch=True)
-        self.visualization_pub = rospy.Publisher(rospy.get_name() + '/visualization', Image, queue_size=1, latch=True)
-        self.vis_depth_pub = rospy.Publisher(rospy.get_name() + '/depth', Image, queue_size=1, latch=True)
-        self.vis_picking_object_pub = rospy.Publisher(rospy.get_name() + '/vis_picking_object', Image, queue_size=1, latch=True)
+        self.vis_original_pub = rospy.Publisher(rospy.get_name() + '/original_result', Image, queue_size=1, latch=True)
+        self.vis_processed_pub = rospy.Publisher(rospy.get_name() + '/processed_result', Image, queue_size=1, latch=True)
+        self.vis_depth_pub = rospy.Publisher(rospy.get_name() + '/aligned_depth_map', Image, queue_size=1, latch=True)
         self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1, latch=True)
-        self.trigger_pub = rospy.Publisher(rospy.get_name() + '/trigger_id', Int32, queue_size=1, latch=True)
-        self.vis_container_edge = rospy.Publisher(rospy.get_name() + "/vis_container_edge", Image, queue_size=1, latch=True)
 
         # Define subscriber
-        # self.result_sub = rospy.Subscriber("/phoxi_camera/external_camera_texture", Image, self.callback_get_image)
-        # self.container_sub = rospy.Subscriber("icp_registration/container_position", Container, self.callback_get_container_edge)
 
         # Define service
         self.result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
@@ -156,7 +132,6 @@ class MaskRCNNNode(object):
 
     def detect_objects(self, image_msg, depth_msg):
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
-        np_image = np_image[REGION_Y_OFFSET:REGION_Y_OFFSET + REGION_HEIGHT, REGION_X_OFFSET:REGION_X_OFFSET + REGION_WIDTH]
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
 
         self.image = np.copy(np_image)
@@ -287,22 +262,25 @@ class MaskRCNNNode(object):
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
 
+        start_build_image_msg = time.time() 
         cv_result = np.zeros(shape=vis_image.shape, dtype=np.uint8)
         cv2.convertScaleAbs(vis_image, cv_result)
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        # self.visualization_pub.publish(image_msg)
-        self.vis_picking_object_pub.publish(image_msg)
+        self.vis_processed_pub.publish(image_msg)
 
         vis_image = self.visualize(result, image)
         cv_result = np.zeros(shape=image.shape, dtype=np.uint8)
         cv2.convertScaleAbs(vis_image, cv_result)
         image_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
-        self.visualization_pub.publish(image_msg)
+        self.vis_original_pub.publish(image_msg)
 
         cv_result = np.zeros(shape=vis_depth.shape, dtype=np.uint8)
         cv2.convertScaleAbs(vis_depth, cv_result)
         depth_msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
         self.vis_depth_pub.publish(depth_msg)
+        end_build_image_msg = time.time() 
+        build_msg_time = end_build_image_msg - start_build_image_msg
+        rospy.loginfo("%s[s] (Building image msg time)", round(build_msg_time, 3))
 
         rospy.loginfo("Published msg completely")
 
@@ -332,7 +310,7 @@ class MaskRCNNNode(object):
             data_pts[k,1] = contour[k,0,1]
         mean = np.empty((0))
         mean, eigenvectors, eigenvalues = cv2.PCACompute2(data_pts, mean)
-        obj_center_pixel = (int(mean[0,0]) + REGION_X_OFFSET, int(mean[0,1]) + REGION_Y_OFFSET)
+        obj_center_pixel = (int(mean[0,0]), int(mean[0,1]))
         unit_x_axis_pixel = np.array([eigenvectors[0,0] * eigenvalues[0,0], eigenvectors[0,1] * eigenvalues[0,0]]) / math.sqrt((eigenvectors[0,0] * eigenvalues[0,0])**2 + (eigenvectors[0,1] * eigenvalues[0,0])**2)
         unit_y_axis_pixel = np.array([eigenvectors[1,0] * eigenvalues[1,0], eigenvectors[1,1] * eigenvalues[1,0]]) / math.sqrt((eigenvectors[1,0] * eigenvalues[1,0])**2 + (eigenvectors[1,1] * eigenvalues[1,0])**2)
 
@@ -354,9 +332,6 @@ class MaskRCNNNode(object):
         if obj_center_depth == 0.0:
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0, 0)
-
-        # print("obj_center_depth: ", obj_center_depth)
-        # print("x_axis_depth: ", x_axis_depth)
 
         # Calculate center point on camera coordiante
         obj_center_z = obj_center_depth
@@ -460,7 +435,6 @@ class MaskRCNNNode(object):
     def delete_all_markers(self):
         delete_marker = Marker()
 
-        #delete_marker.header.frame_id = FRAME_ID
         delete_marker.header.stamp = rospy.Time()
         delete_marker.type = Marker.ARROW
         delete_marker.action = Marker.DELETEALL
@@ -511,50 +485,6 @@ class MaskRCNNNode(object):
         _, _, w, h = fig.bbox.bounds
         result = result.reshape((int(h), int(w), 3))
         return result
-
-    #def callback_get_image(self, image_msg):
-    #    depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, 10)
-    #    trigger_id = rospy.wait_for_message("/phoxi_camera/trigger_id", Int32, 10)
-    #    rospy.loginfo("TriggerID: %s", trigger_id.data)       
- 
-    #    start_build_msg = time.time() 
-    #    result_msg = self.detect_objects(image_msg, depth_msg)
-    #    self.trigger_pub.publish(trigger_id.data)
-    #    end_build_msg = time.time() 
-    #    build_msg_time = end_build_msg - start_build_msg
-    #    rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
-
-    #def callback_get_container_edge(self, msg):
-    #    rospy.loginfo("CallBack container position")
-    #    pts = []
-    #    for p in msg.edges:
-    #        edge = np.array([p.point.x, p.point.y, p.point.z], dtype=float)
-    #        projected_point = cv2.projectPoints(edge, (0,0,0), (0,0,0), self.camera_matrix, self.dist_coeffs)
-    #        projected_point = projected_point[0].reshape(-1)
-    #        pts.append((int(projected_point[0]), int(projected_point[1])))
-
-    #    image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, 10)
-    #    img = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
-
-    #    for pt in pts:
-    #        cv2.circle(img, pt, 8, (0, 0, 255), -1)
-
-    #    cv2.line(img, pts[0], pts[1], (0, 0, 255), 5)
-    #    cv2.line(img, pts[1], pts[2], (0, 0, 255), 5)
-    #    cv2.line(img, pts[2], pts[3], (0, 0, 255), 5)
-    #    cv2.line(img, pts[3], pts[0], (0, 0, 255), 5)
-    #    cv2.line(img, pts[4], pts[5], (0, 0, 255), 5)
-    #    cv2.line(img, pts[5], pts[6], (0, 0, 255), 5)
-    #    cv2.line(img, pts[6], pts[7], (0, 0, 255), 5)
-    #    cv2.line(img, pts[7], pts[4], (0, 0, 255), 5)
-    #    cv2.line(img, pts[0], pts[4], (0, 0, 255), 5)
-    #    cv2.line(img, pts[1], pts[5], (0, 0, 255), 5)
-    #    cv2.line(img, pts[2], pts[6], (0, 0, 255), 5)
-    #    cv2.line(img, pts[3], pts[7], (0, 0, 255), 5)
-
-    #    image_msg = self.cv_bridge.cv2_to_imgmsg(img, 'bgr8')
-    #    self.vis_container_edge.publish(image_msg)
-
 
 def main():
     rospy.init_node('mask_rcnn')
