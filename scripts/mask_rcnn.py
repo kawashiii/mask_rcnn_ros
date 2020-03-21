@@ -11,14 +11,13 @@ import rospy
 import roslib.packages
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
+from sensor_msgs.msg import CameraInfo
 from geometry_msgs.msg import Vector3
 from geometry_msgs.msg import Vector3Stamped
 from geometry_msgs.msg import Point
 from geometry_msgs.msg import PointStamped
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
-from std_msgs.msg import UInt8MultiArray
-from std_msgs.msg import Int32
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import *
 
@@ -36,7 +35,10 @@ from keras.backend import tensorflow_backend as backend
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 CLASS_NAME = "caloriemate"
 MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
-CAMERA_INTRINSIC = os.path.join(ROOT_DIR, "config/basler_intrinsic.xml")
+
+CAMERA_INFO_TOPIC = "/pylon_camera_node/camera_info"
+IMAGE_TOPIC = "/pylon_camera_node/image_rect"
+DEPTH_TOPIC = "/phoxi_camera/aligned_depth_map"
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
 # if the depth of (x, y) is 0, it is approximate depth value around specific pixel
@@ -51,23 +53,26 @@ class InferenceConfig(lab.LabConfig):
 class MaskRCNNNode(object):
     def __init__(self):
         self.cv_bridge = CvBridge()
-
-        config = InferenceConfig()
-        #config.display()
+        self.is_service_called = False
 
         # Create model object in inference mode.
+        config = InferenceConfig()
+        #config.display()
         self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
         self.model.load_weights(MODEL, by_name=True)
         self.model.keras_model._make_predict_function()
-
-        # Set calibration matrix
-        fs = cv2.FileStorage(CAMERA_INTRINSIC, cv2.FILE_STORAGE_READ)
-        self.camera_matrix = fs.getNode("camera_matrix").mat()
-        self.dist_coeffs = fs.getNode("distortion_coefficients").mat()
-
         self.class_names = ['BG', CLASS_NAME]
 
-        self.is_service_called = False
+        # Set calibration matrix
+        rospy.loginfo("Waiting camera info topic")
+        camera_info = rospy.wait_for_message(CAMERA_INFO_TOPIC, CameraInfo, 10)
+        self.camera_matrix = np.array(camera_info.K).reshape([3, 3])
+        self.fx = self.camera_matrix[0][0]
+        self.fy = self.camera_matrix[1][1]
+        self.cx = self.camera_matrix[0][2]
+        self.cy = self.camera_matrix[1][2]
+        self.dist_coeffs = np.array(camera_info.D)
+        rospy.loginfo("Acquired camera info")       
     
     def run(self):
         # Define publisher
@@ -77,11 +82,9 @@ class MaskRCNNNode(object):
         self.vis_depth_pub = rospy.Publisher(rospy.get_name() + '/aligned_depth_map', Image, queue_size=1, latch=True)
         self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1, latch=True)
 
-        # Define subscriber
-
         # Define service
-        self.result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
-        self.set_model_srv = rospy.Service(rospy.get_name() + "/set_model", SetModel, self.set_model)
+        result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
+        set_model_srv = rospy.Service(rospy.get_name() + "/set_model", SetModel, self.set_model)
 
         rospy.loginfo("Ready to be called service")
 
@@ -115,11 +118,10 @@ class MaskRCNNNode(object):
         CLASS_NAME = req.class_name
         MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
         
-        config = InferenceConfig()
-        #config.display()
         # Create model object in inference mode.
         try:
             backend.clear_session()
+            config = InferenceConfig()
             self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
             self.model.load_weights(MODEL, by_name=True)
             self.model.keras_model._make_predict_function()
@@ -142,8 +144,8 @@ class MaskRCNNNode(object):
 
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        image_msg = rospy.wait_for_message("/phoxi_camera/external_camera_texture", Image, timeout)
-        depth_msg = rospy.wait_for_message("/phoxi_camera/aligned_depth_map", Image, timeout)
+        image_msg = rospy.wait_for_message(IMAGE_TOPIC, Image, timeout)
+        depth_msg = rospy.wait_for_message(DEPTH_TOPIC, Image, timeout)
         rospy.loginfo("Acquired frame")
 
         start_build_msg = time.time() 
@@ -320,46 +322,40 @@ class MaskRCNNNode(object):
         unit_x_axis_pixel = np.array([eigenvectors[0,0] * eigenvalues[0,0], eigenvectors[0,1] * eigenvalues[0,0]]) / math.sqrt((eigenvectors[0,0] * eigenvalues[0,0])**2 + (eigenvectors[0,1] * eigenvalues[0,0])**2)
         unit_y_axis_pixel = np.array([eigenvectors[1,0] * eigenvalues[1,0], eigenvectors[1,1] * eigenvalues[1,0]]) / math.sqrt((eigenvectors[1,0] * eigenvalues[1,0])**2 + (eigenvectors[1,1] * eigenvalues[1,0])**2)
 
-        # Calculate center point on image coordinate by camera intrinsic parameter
-        np_obj_center_pixel = np.array(obj_center_pixel, dtype=self.camera_matrix.dtype)
-        undistorted_center = cv2.undistortPoints(np_obj_center_pixel, self.camera_matrix, self.dist_coeffs)
-        undistorted_center = undistorted_center.reshape(2)
-        undistorted_x = int(self.camera_matrix[0][0]*undistorted_center[0] + self.camera_matrix[0][2])
-        undistorted_y = int(self.camera_matrix[1][1]*undistorted_center[1] + self.camera_matrix[1][2])
-        
-        cv2.circle(self.vis_depth, (undistorted_x, undistorted_y), 5, (0, 0, 255), 3)
+        cv2.circle(self.vis_depth, obj_center_pixel, 5, (0, 0, 255), 3)
         cv2.drawContours(self.vis_depth, contours, 0, (255, 255, 0), 6)
 
         # Check center point of Depth Value
-        #obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, obj_center_pixel, unit_x_axis_pixel, unit_y_axis_pixel)
-        obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, (undistorted_x, undistorted_y), unit_x_axis_pixel, unit_y_axis_pixel)
+        obj_center_depth, x_axis_depth, y_axis_depth = self.get_depth(depth, obj_center_pixel, unit_x_axis_pixel, unit_y_axis_pixel)
         #if obj_center_depth == 0.0 or x_axis_depth == 0.0 or y_axis_depth == 0.0:
         if obj_center_depth == 0.0:
             rospy.logwarn("Skip this object.(Depth value around center point is all 0.)")
             return (0, 0, 0, 0)
 
         # Calculate center point on camera coordiante
+        u = obj_center_pixel[0]
+        v = obj_center_pixel[1]
         obj_center_z = obj_center_depth
-        obj_center_x = undistorted_center[0] * obj_center_z
-        obj_center_y = undistorted_center[1] * obj_center_z
+        obj_center_x = (u - self.cx) * obj_center_z / self.fx
+        obj_center_y = (v - self.cy) * obj_center_z / self.fy
         obj_center_camera = Point(obj_center_x, obj_center_y, obj_center_z)
 
         # Calculate x-axis
         np_x_axis_pixel = np.array([obj_center_pixel[0] + unit_x_axis_pixel[0]*20, obj_center_pixel[1] + unit_x_axis_pixel[1]*20], dtype=self.camera_matrix.dtype)
-        undistorted_x_axis = cv2.undistortPoints(np_x_axis_pixel, self.camera_matrix, self.dist_coeffs)
-        undistorted_x_axis = undistorted_x_axis.reshape(2)
+        u_x_axis = np_x_axis_pixel[0]
+        v_x_axis = np_x_axis_pixel[1]
         x_axis_z = x_axis_depth - obj_center_z
-        x_axis_x = undistorted_x_axis[0] * x_axis_depth - obj_center_x 
-        x_axis_y = undistorted_x_axis[1] * x_axis_depth - obj_center_y
+        x_axis_x = (u_x_axis - self.cx) * x_axis_depth / self.fx - obj_center_x 
+        x_axis_y = (v_x_axis - self.cy) * x_axis_depth / self.fy - obj_center_y
         magnitude_x_axis = sqrt(x_axis_x**2 + x_axis_y**2 + x_axis_z**2)
         x_axis_camera = Vector3(x_axis_x/magnitude_x_axis, x_axis_y/magnitude_x_axis, x_axis_z/magnitude_x_axis)
 
         np_y_axis_pixel = np.array([obj_center_pixel[0] - unit_y_axis_pixel[0]*20, obj_center_pixel[1] - unit_y_axis_pixel[1]*20], dtype=self.camera_matrix.dtype)
-        undistorted_y_axis = cv2.undistortPoints(np_y_axis_pixel, self.camera_matrix, self.dist_coeffs)
-        undistorted_y_axis = undistorted_y_axis.reshape(2)
+        u_y_axis = np_y_axis_pixel[0]
+        v_y_axis = np_y_axis_pixel[1]
         y_axis_z = y_axis_depth - obj_center_z
-        y_axis_x = undistorted_y_axis[0] * y_axis_depth - obj_center_x 
-        y_axis_y = undistorted_y_axis[1] * y_axis_depth - obj_center_y
+        y_axis_x = (u_y_axis - self.cx) * y_axis_depth / self.fy - obj_center_x 
+        y_axis_y = (v_y_axis - self.cy) * y_axis_depth / self.fy - obj_center_y
         magnitude_y_axis = sqrt(y_axis_x**2 + y_axis_y**2 + y_axis_z**2)
         y_axis_camera = Vector3(y_axis_x/magnitude_x_axis, y_axis_y/magnitude_x_axis, y_axis_z/magnitude_x_axis)
 
@@ -424,14 +420,14 @@ class MaskRCNNNode(object):
         axis_marker.text = str(axis_marker.id)
 
         if marker_type == Marker.TEXT_VIEW_FACING:
-            axis_marker.pose.position.x = center.x + axis.x * 0.05
-            axis_marker.pose.position.y = center.y + axis.y * 0.05
-            axis_marker.pose.position.z = center.z - 0.01 + axis.z * 0.05
+            axis_marker.pose.position.x = center.x + axis.x * 0.04
+            axis_marker.pose.position.y = center.y + axis.y * 0.04
+            axis_marker.pose.position.z = center.z - 0.01 + axis.z * 0.04
             return axis_marker
 
         start_point = center
         # end_point = x_axis
-        end_point = Point(center.x + axis.x * 0.05, center.y + axis.y * 0.05, center.z + axis.z * 0.05)
+        end_point = Point(center.x + axis.x * 0.04, center.y + axis.y * 0.04, center.z + axis.z * 0.04)
         axis_marker.points = [start_point, end_point]
 
         return axis_marker
