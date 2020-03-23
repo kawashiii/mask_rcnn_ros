@@ -20,6 +20,7 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from mask_rcnn_ros.msg import MaskRCNNMsg
 from mask_rcnn_ros.srv import *
+#from region_growing_segmentation.srv import *
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import lab
@@ -33,8 +34,9 @@ from mrcnn import visualize
 from keras.backend import tensorflow_backend as backend
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
+MODEL_DIR = os.path.join(ROOT_DIR, "models/")
 CLASS_NAME = "caloriemate"
-MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
+MODEL = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
 
 CAMERA_INFO_TOPIC = "/pylon_camera_node/camera_info"
 IMAGE_TOPIC = "/pylon_camera_node/image_rect"
@@ -116,7 +118,7 @@ class MaskRCNNNode(object):
         res = SetModelResponse()
     
         CLASS_NAME = req.class_name
-        MODEL = os.path.join(ROOT_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
+        MODEL = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
         
         # Create model object in inference mode.
         try:
@@ -195,6 +197,8 @@ class MaskRCNNNode(object):
         axes_msg = MarkerArray()
         delete_marker = self.delete_all_markers()
         axes_msg.markers.append(delete_marker)
+
+        mask_msgs=[]
         
         for i, (y1, x1, y2, x2) in enumerate(result['rois']):
             rospy.loginfo("ID:%s '%s' is detected", str(i), self.class_names[result['class_ids'][i]])
@@ -260,6 +264,18 @@ class MaskRCNNNode(object):
             score = result['scores'][i]
             result_msg.scores.append(score)
 
+            m = self.cv_bridge.cv2_to_imgmsg(mask, 'mono8')
+            mask_msgs.append(m)
+            #m = Image()
+            #m.header = msg_header
+            #m.height = result['masks'].shape[0]
+            #m.width = result['masks'].shape[1]
+            #m.encoding = "mono8"
+            #m.is_bigendian = False
+            #m.step = m.width
+            #m.data = (result['masks'][:, :, i] * 255).tobytes()
+            #mask_msgs.append(m)
+
             #caption = "{} {:.3f}".format(class_name, score) if score else class_name
             id_caption = "ID:" + str(i)
             class_caption = class_name + " " +  str(round(score, 3))
@@ -274,6 +290,13 @@ class MaskRCNNNode(object):
             res = get_normal(result_msg.centers)
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
+
+        try:
+            get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
+            tmp = get_masked_surface(mask_msgs)
+        except rospy.ServiceException as e:
+            rospy.logerr("Service calll failed: ",e)
+
 
         result_msg.centers = []
         result_msg.normals = []
