@@ -74,6 +74,11 @@ class MaskRCNNNode(object):
         self.cx = self.camera_matrix[0][2]
         self.cy = self.camera_matrix[1][2]
         self.dist_coeffs = np.array(camera_info.D)
+
+        width = camera_info.width
+        height = camera_info.height
+        size = height, width, 3
+        self.dummy_image = np.zeros(size, dtype=np.uint8)
         rospy.loginfo("Acquired camera info")       
     
     def run(self):
@@ -88,6 +93,7 @@ class MaskRCNNNode(object):
         result_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.wait_frame)
         set_model_srv = rospy.Service(rospy.get_name() + "/set_model", SetModel, self.set_model)
 
+        self.model.detect([self.dummy_image], verbose=0)
         rospy.loginfo("Ready to be called service")
 
         r = rospy.Rate(10)
@@ -134,6 +140,7 @@ class MaskRCNNNode(object):
             return res
         
         self.class_names = ['BG', CLASS_NAME]
+        self.model.detect([self.dummy_image], verbose=0)
         rospy.loginfo("Finished setting " + CLASS_NAME + " model")
 
         res.message = "OK"
@@ -285,19 +292,20 @@ class MaskRCNNNode(object):
             cv2.putText(self.vis_depth, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
 
         # service call get_normal in mask_rcnn_utils.py
-        try:
-            get_normal = rospy.ServiceProxy("/mask_rcnn_utils/get_normal", GetNormal)
-            res = get_normal(result_msg.centers)
-        except rospy.ServiceException as e:
-            rospy.logerr("Service calll failed: ",e)
+        #try:
+        #    get_normal = rospy.ServiceProxy("/mask_rcnn_utils/get_normal", GetNormal)
+        #    res = get_normal(result_msg.centers)
+        #except rospy.ServiceException as e:
+        #    rospy.logerr("Service calll failed: ",e)
 
         try:
             get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
-            tmp = get_masked_surface(mask_msgs)
+            res = get_masked_surface(mask_msgs)
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
 
-
+        result_msg.ids = []
+        result_msg.count = 0
         result_msg.centers = []
         result_msg.normals = []
         for i, (center, normal) in enumerate(zip(res.centers, res.normals)):
@@ -307,6 +315,9 @@ class MaskRCNNNode(object):
             text_marker = self.build_marker_msg(center.header.frame_id, Marker.TEXT_VIEW_FACING, i, center.point, normal.vector, 1.0, 1.0, 1.0, "id_text")
             axes_msg.markers.append(normal_marker)
             axes_msg.markers.append(text_marker)
+
+            result_msg.ids.append(i)
+            result_msg.count += 1
         
         rospy.loginfo("Service Get Normal finished")
 
@@ -322,9 +333,12 @@ class MaskRCNNNode(object):
         contours, hierarchy = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
 
         # Because of one mask, the number of contours should be one.
-        if len(contours) != 1:
-            rospy.logwarn("Skip this object.(Inferenced mask is not clearly.)")
-            return (0, 0, 0, 0)
+        #if len(contours) != 1:
+        #    rospy.logwarn("Skip this object.(Inferenced mask is not clearly.)")
+        #    return (0, 0, 0, 0)
+        if len(contours) > 1:
+            contours.sort(key=len, reverse=True)
+            rospy.logwarn("This object is used the biggest mask")
 
         # Check Contour Area        
         contour = contours[0]        
