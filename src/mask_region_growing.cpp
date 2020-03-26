@@ -108,7 +108,8 @@ visualization_msgs::Marker build_marker_msg(std_msgs::Header header, string ns, 
 
     return marker;
 }
-CenterNormalMsg getRegionGrowingFromPoint(vector<PointT> center_list, int count)
+
+void sceneRegionGrowingFromPoint(vector<PointT> center_list)
 {
     CenterNormalMsg msg;
     pcl::PointIndices cluster;
@@ -137,9 +138,6 @@ CenterNormalMsg getRegionGrowingFromPoint(vector<PointT> center_list, int count)
 
         msg.center.header.frame_id = frame_id;
         msg.center.header.stamp = ros::Time::now();
-        //msg.center.point.x = c1.x;
-        //msg.center.point.y = c1.y;
-        //msg.center.point.z = c1.z;
         msg.center.point.x = scene->points[indices_[0]].x;
         msg.center.point.y = scene->points[indices_[0]].y;
         msg.center.point.z = scene->points[indices_[0]].z;
@@ -157,11 +155,9 @@ CenterNormalMsg getRegionGrowingFromPoint(vector<PointT> center_list, int count)
         center_msg_list.push_back(msg.center);
         normal_msg_list.push_back(msg.normal);
     }
-    
-    return msg;    
 }
 
-CenterNormalMsg getRegionGrowing(cv::Mat mask_index, int count)
+void maskedRegionGrowing(cv::Mat mask_index)
 {
     CenterNormalMsg msg;
 
@@ -194,7 +190,7 @@ CenterNormalMsg getRegionGrowing(cv::Mat mask_index, int count)
     normal_estimator.setKSearch (20);
     normal_estimator.compute (*cloud_normals);
     reg.setMinClusterSize (50);
-    reg.setMaxClusterSize (10000);
+    reg.setMaxClusterSize (3000);
     reg.setSearchMethod (tree);
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud);
@@ -205,43 +201,28 @@ CenterNormalMsg getRegionGrowing(cv::Mat mask_index, int count)
 
     if (indices.size() == 0) {
 	ROS_WARN("Couldn't find any surface");
-        return msg;
+        return;
     }
+
     ROS_INFO("%d surfaces found", (int)indices.size());
     masked_surface_list.push_back(reg.getColoredCloud());
-    vector<int> target_indices = indices[0].indices;
-    
-    //sort(indices.begin(), indices.end(), compare_indices_median);
-
-    vector<float> z_median_list;
     vector<PointT> center_list;
     for (auto i = indices.begin(); i != indices.end(); i++)
     {
         pcl::CentroidPoint<PointT> centroid;
-        vector<float> z_list;
         PointT center;
         for (auto point = i->indices.begin(); point != i->indices.end(); point++)
         {
             centroid.add(cloud->points[*point]);
-            z_list.push_back(cloud->points[*point].z);
         }
         centroid.get(center);
         center_list.push_back(center);
-
-        std::vector<float>::iterator med = z_list.begin();
-        std::advance(med, z_list.size() / 2);
-        std::nth_element(z_list.begin(), med, z_list.end());
-        z_median_list.push_back(z_list[(int)z_list.size()/2]);
     }
 
-    std::vector<float>::iterator iter = std::min_element(z_median_list.begin(), z_median_list.end());
-    size_t index = std::distance(z_median_list.begin(), iter);
-
     if (center_list.size() > 1) {
-        msg = getRegionGrowingFromPoint(center_list, count);
-        return msg;
+        sceneRegionGrowingFromPoint(center_list);
     } else {
-        PointT c1 = center_list[index];
+        PointT c1 = center_list[0];
         pcl::KdTreeFLANN<PointT> kdtree;
         kdtree.setInputCloud(cloud);
         int K = 1;
@@ -251,9 +232,6 @@ CenterNormalMsg getRegionGrowing(cv::Mat mask_index, int count)
 
         msg.center.header.frame_id = frame_id;
         msg.center.header.stamp = ros::Time::now();
-        //msg.center.point.x = c1.x;
-        //msg.center.point.y = c1.y;
-        //msg.center.point.z = c1.z;
         msg.center.point.x = cloud->points[indices_[0]].x;
         msg.center.point.y = cloud->points[indices_[0]].y;
         msg.center.point.z = cloud->points[indices_[0]].z;
@@ -271,21 +249,19 @@ CenterNormalMsg getRegionGrowing(cv::Mat mask_index, int count)
         center_msg_list.push_back(msg.center);
         normal_msg_list.push_back(msg.normal);
     }
-
-    return msg;
 }
 
-bool callbackGetLocalSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask_rcnn_ros::GetMaskedSurface::Response &res)
+void markerInitialization()
 {
-    ROS_INFO("Service called");
-    ros::WallTime start_process_time = ros::WallTime::now();
-
-    scene_surface_list = {};
-    masked_surface_list = {};
-    center_msg_list = {};
-    normal_msg_list = {};
     marker_axes_list = {};
-   
+    arrow_scale.x = 0.01, arrow_scale.y = 0.01, arrow_scale.z = 0.01;
+    z_axis_color.r = 0.0, z_axis_color.g = 0.0, z_axis_color.b = 1.0, z_axis_color.a = 1.0;
+    visualization_msgs::Marker del_msg = build_marker_msg(std_msgs::Header(), "", 0, 0, visualization_msgs::Marker::DELETEALL, geometry_msgs::Vector3(), std_msgs::ColorRGBA(), geometry_msgs::Point(), geometry_msgs::Vector3(), "");
+    marker_axes_list.markers.push_back(del_msg);
+}
+
+void sceneRegionGrowing()
+{
     pcl::search::Search<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
     pcl::NormalEstimation<PointT, pcl::Normal> normal_estimator;
     vector<pcl::PointIndices> indices;
@@ -304,12 +280,21 @@ bool callbackGetLocalSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask
     scene_reg.extract(indices);
     scene_surface_list.push_back(scene_reg.getColoredCloud());
     ROS_INFO("Scene RegionGrowing finished");
+}
 
-    arrow_scale.x = 0.01, arrow_scale.y = 0.01, arrow_scale.z = 0.01;
-    z_axis_color.r = 0.0, z_axis_color.g = 0.0, z_axis_color.b = 1.0, z_axis_color.a = 1.0;
-    visualization_msgs::Marker del_msg = build_marker_msg(std_msgs::Header(), "", 0, 0, visualization_msgs::Marker::DELETEALL, geometry_msgs::Vector3(), std_msgs::ColorRGBA(), geometry_msgs::Point(), geometry_msgs::Vector3(), "");
-    marker_axes_list.markers.push_back(del_msg);
+bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask_rcnn_ros::GetMaskedSurface::Response &res)
+{
+    ROS_INFO("Service called");
+    ros::WallTime start_process_time = ros::WallTime::now();
 
+    scene_surface_list = {};
+    masked_surface_list = {};
+    center_msg_list = {};
+    normal_msg_list = {};
+    markerInitialization();
+
+    sceneRegionGrowing();
+   
     int count = 0;
     vector<sensor_msgs::Image> mask_msgs = req.masks;
     for (sensor_msgs::Image mask_msg : mask_msgs)
@@ -318,20 +303,18 @@ bool callbackGetLocalSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask
 	cv_ptr = cv_bridge::toCvCopy(mask_msg, "8UC1");
 	cv::Mat mask = cv_ptr->image.clone();
 
+        //offset
+        cv::Mat offset = (cv::Mat_<double>(2, 3) << 1.0, 0.0, 10.0, 0.0, 1.0, 0.0);
+        cv::warpAffine(mask, mask, offset, mask.size());
+
 	cv::Mat mask_index;
 	cv::findNonZero(mask, mask_index);
 
 	ROS_INFO("ID:%d", count);
-
-	CenterNormalMsg msg = getRegionGrowing(mask_index, count);
-	res.centers.push_back(msg.center);
-	res.normals.push_back(msg.normal);
+	maskedRegionGrowing(mask_index);
 
 	count++;
     }
-
-    res.centers = {};
-    res.normals = {};
 
     for (int i = 0; i < center_msg_list.size(); i++)
     {
@@ -383,6 +366,8 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     voxelSampler.setInputCloud(scene);
     voxelSampler.setLeafSize(0.003, 0.003, 0.003);
     voxelSampler.filter(*scene);
+
+    ROS_INFO("Preprocessed Finished");
 }
 
 void setCameraParameters()
@@ -396,6 +381,7 @@ void setCameraParameters()
     fy = K.at<double>(1, 1);
     cx = K.at<double>(0, 2);
     cy = K.at<double>(1, 2);
+
 }
 
 int main(int argc, char *argv[])
@@ -411,7 +397,7 @@ int main(int argc, char *argv[])
 
     ros::Subscriber subDepth = nh.subscribe<sensor_msgs::Image>(depth_topic, 1, callbackDepth);
 
-    ros::ServiceServer get_local_surface = nh.advertiseService(ros::this_node::getName() + "/get_masked_surface", callbackGetLocalSurface);
+    ros::ServiceServer get_local_surface = nh.advertiseService(ros::this_node::getName() + "/get_masked_surface", callbackGetMaskedSurface);
 
     vis_axes_marker = nh.advertise<visualization_msgs::MarkerArray>(ros::this_node::getName() + "/axes", 0, true);
 
