@@ -169,6 +169,7 @@ class MaskRCNNNode(object):
     def detect_objects(self, image_msg, depth_msg):
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
+        #np_depth = cv2.undistort(np_depth, self.camera_matrix, self.dist_coeffs)
 
         self.image = np.copy(np_image)
 
@@ -298,26 +299,52 @@ class MaskRCNNNode(object):
         #except rospy.ServiceException as e:
         #    rospy.logerr("Service calll failed: ",e)
 
-        try:
-            get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
-            res = get_masked_surface(mask_msgs)
-        except rospy.ServiceException as e:
-            rospy.logerr("Service calll failed: ",e)
+        if len(result_msg.class_names) == 0:
+            rospy.loginfo("Service Get Normal finished")
 
-        result_msg.ids = []
-        result_msg.count = 0
-        result_msg.centers = []
-        result_msg.normals = []
-        for i, (center, normal) in enumerate(zip(res.centers, res.normals)):
-            result_msg.normals.append(normal)
-            result_msg.centers.append(center)
-            normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 0.5, 0.0, 0.5, "normal")
-            text_marker = self.build_marker_msg(center.header.frame_id, Marker.TEXT_VIEW_FACING, i, center.point, normal.vector, 1.0, 1.0, 1.0, "id_text")
-            axes_msg.markers.append(normal_marker)
-            axes_msg.markers.append(text_marker)
+            self.result_pub.publish(result_msg)
+            self.marker_pub.publish(axes_msg)
 
-            result_msg.ids.append(i)
-            result_msg.count += 1
+            rospy.loginfo("Published msg completely")
+            return result_msg
+
+        if result_msg.class_names[0] == "koiwashi":
+            for i, (center,normal) in enumerate(zip(result_msg.centers,result_msg.normals)):
+                normal.vector.x = 0.0
+                normal.vector.y = 0.0
+                normal.vector.z = -1.0
+                normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, i, center.point, normal.vector, 0.0, 0.0, 1.0, "normal")
+                text_marker = self.build_marker_msg(center.header.frame_id, Marker.TEXT_VIEW_FACING, i, center.point, normal.vector, 1.0, 1.0, 1.0, "id_text")
+                axes_msg.markers.append(normal_marker)
+                axes_msg.markers.append(text_marker)
+
+        else:
+            try:
+                get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
+                res = get_masked_surface(mask_msgs)
+            except rospy.ServiceException as e:
+                rospy.logerr("Service calll failed: ",e)
+
+            result_msg.ids = []
+            count = 0
+            result_msg.count = 0
+            result_msg.centers = []
+            result_msg.normals = []
+            result_msg.axes = []
+            for i, (centers_msg, normals_msg) in enumerate(zip(res.centers_list, res.normals_list)):
+                
+                for j, (center, normal) in enumerate(zip(centers_msg.centers, normals_msg.normals)):
+                    result_msg.normals.append(normal)
+                    result_msg.centers.append(center)
+                    result_msg.axes.append(normal)
+                    normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, count, center.point, normal.vector, 0.0, 0.0, 1.0, "normal")
+                    text_marker = self.build_marker_msg(center.header.frame_id, Marker.TEXT_VIEW_FACING, count, center.point, normal.vector, 1.0, 1.0, 1.0, "id_text")
+                    axes_msg.markers.append(normal_marker)
+                    axes_msg.markers.append(text_marker)
+    
+                    result_msg.ids.append(count)
+                    result_msg.count += 1
+                    count+=1
         
         rospy.loginfo("Service Get Normal finished")
 

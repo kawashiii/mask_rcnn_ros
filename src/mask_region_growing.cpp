@@ -34,6 +34,8 @@
 
 //Msg or Srv
 #include "mask_rcnn_ros/GetMaskedSurface.h"
+#include "mask_rcnn_ros/Centers.h"
+#include "mask_rcnn_ros/Normals.h"
 
 using namespace std;
 
@@ -62,8 +64,10 @@ ros::Publisher scene_surface_pointcloud_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
 std::string depth_topic = "/phoxi_camera/aligned_depth_map";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
-vector<geometry_msgs::PointStamped> center_msg_list;
-vector<geometry_msgs::Vector3Stamped> normal_msg_list;
+vector<mask_rcnn_ros::Centers> center_msg_list;
+vector<mask_rcnn_ros::Normals> normal_msg_list;
+//vector<geometry_msgs::PointStamped> center_msg_list;
+//vector<geometry_msgs::Vector3Stamped> normal_msg_list;
 visualization_msgs::MarkerArray marker_axes_list;
 geometry_msgs::Vector3 arrow_scale;
 std_msgs::ColorRGBA z_axis_color;
@@ -111,9 +115,10 @@ visualization_msgs::Marker build_marker_msg(std_msgs::Header header, string ns, 
 
 void sceneRegionGrowingFromPoint(vector<PointT> center_list)
 {
-    CenterNormalMsg msg;
-    pcl::PointIndices cluster;
-
+    //vector<geometry_msgs::PointStamped> centers;
+    //vector<geometry_msgs::Vector3Stamped> normals;
+    mask_rcnn_ros::Centers centers_msg;
+    mask_rcnn_ros::Normals normals_msg;
     for (PointT center : center_list)
     {
         pcl::KdTreeFLANN<PointT> kdtree;
@@ -123,6 +128,7 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
         vector<float> distance(K);
         kdtree.nearestKSearch(center, K, indices_, distance);
 
+        pcl::PointIndices cluster;
         scene_reg.getSegmentFromPoint(indices_[0], cluster);
 
         pcl::CentroidPoint<PointT> centroid;
@@ -132,10 +138,13 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
             centroid.add(scene->points[*point]);
         }
         centroid.get(c1);
+        if (c1.z == 0.0)
+            continue;
 
         kdtree.setInputCloud(scene);
         kdtree.nearestKSearch(c1, K, indices_, distance);
 
+        CenterNormalMsg msg;
         msg.center.header.frame_id = frame_id;
         msg.center.header.stamp = ros::Time::now();
         msg.center.point.x = scene->points[indices_[0]].x;
@@ -152,15 +161,16 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
             msg.normal.vector.z *= -1;
         }
 
-        center_msg_list.push_back(msg.center);
-        normal_msg_list.push_back(msg.normal);
+        centers_msg.centers.push_back(msg.center);
+        normals_msg.normals.push_back(msg.normal);
     }
+
+    center_msg_list.push_back(centers_msg);
+    normal_msg_list.push_back(normals_msg);
 }
 
 void maskedRegionGrowing(cv::Mat mask_index)
 {
-    CenterNormalMsg msg;
-
     PointCloudT::Ptr cloud (new PointCloudT);
     for (int i = 0; i < mask_index.total(); i++)
     {
@@ -176,7 +186,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     //downsampling
     pcl::VoxelGrid<PointT> voxelSampler;
     voxelSampler.setInputCloud(cloud);
-    voxelSampler.setLeafSize(0.003, 0.003, 0.003);
+    voxelSampler.setLeafSize(0.002, 0.002, 0.002);
     voxelSampler.filter(*cloud);
 
     //regiongrowing
@@ -195,7 +205,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud);
     reg.setInputNormals (cloud_normals);
-    reg.setSmoothnessThreshold (2.0 / 180.0 * M_PI);
+    reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
     reg.setCurvatureThreshold (1.0);
     reg.extract(indices);
 
@@ -219,6 +229,8 @@ void maskedRegionGrowing(cv::Mat mask_index)
         center_list.push_back(center);
     }
 
+    mask_rcnn_ros::Centers centers_msg;
+    mask_rcnn_ros::Normals normals_msg;
     if (center_list.size() > 1) {
         sceneRegionGrowingFromPoint(center_list);
     } else {
@@ -230,6 +242,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
         vector<float> distance(K);
         kdtree.nearestKSearch(c1, K, indices_, distance);
 
+        CenterNormalMsg msg;
         msg.center.header.frame_id = frame_id;
         msg.center.header.stamp = ros::Time::now();
         msg.center.point.x = cloud->points[indices_[0]].x;
@@ -246,8 +259,11 @@ void maskedRegionGrowing(cv::Mat mask_index)
             msg.normal.vector.z *= -1;
         }
 
-        center_msg_list.push_back(msg.center);
-        normal_msg_list.push_back(msg.normal);
+        centers_msg.centers.push_back(msg.center);
+        normals_msg.normals.push_back(msg.normal);
+
+        center_msg_list.push_back(centers_msg);
+        normal_msg_list.push_back(normals_msg);
     }
 }
 
@@ -316,19 +332,21 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
 	count++;
     }
 
-    for (int i = 0; i < center_msg_list.size(); i++)
-    {
-        CenterNormalMsg msg; 
-        msg.center = center_msg_list[i];
-        msg.normal = normal_msg_list[i];
-        visualization_msgs::Marker z_axis_marker = build_marker_msg(msg.center.header, "mask_region_growing_normal", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, msg.center.point, msg.normal.vector, "normal_" + to_string(i));
-        marker_axes_list.markers.push_back(z_axis_marker);
-        res.centers.push_back(msg.center);
-        res.normals.push_back(msg.normal);
-    }
+    res.centers_list = center_msg_list;
+    res.normals_list = normal_msg_list;
+    //for (int i = 0; i < center_msg_list.size(); i++)
+    //{
+    //    CenterNormalMsg msg; 
+    //    msg.center = center_msg_list[i];
+    //    msg.normal = normal_msg_list[i];
+    //    visualization_msgs::Marker z_axis_marker = build_marker_msg(msg.center.header, "mask_region_growing_normal", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, msg.center.point, msg.normal.vector, "normal_" + to_string(i));
+    //    marker_axes_list.markers.push_back(z_axis_marker);
+    //    res.centers.push_back(msg.center);
+    //    res.normals.push_back(msg.normal);
+    //}
 
     vis_axes_marker.publish(marker_axes_list);
-    
+   
     ros::WallTime end_process_time = ros::WallTime::now();
     double execution_process_time = (end_process_time - start_process_time).toNSec() * 1e-9;
     ROS_INFO("Total Service time(s): %.3f", execution_process_time);

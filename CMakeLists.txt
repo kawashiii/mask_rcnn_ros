@@ -55,6 +55,8 @@ find_package(OpenCV REQUIRED)
 add_message_files(
   FILES
   MaskRCNNMsg.msg
+  Centers.msg
+  Normals.msg
 #   Message1.msg
 #   Message2.msg
 )
