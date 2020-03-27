@@ -115,55 +115,59 @@ visualization_msgs::Marker build_marker_msg(std_msgs::Header header, string ns, 
 
 void sceneRegionGrowingFromPoint(vector<PointT> center_list)
 {
-    //vector<geometry_msgs::PointStamped> centers;
-    //vector<geometry_msgs::Vector3Stamped> normals;
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
+    vector<pcl::PointIndices> cluster_indices;
+    pcl::KdTreeFLANN<PointT> kdtree;
+    kdtree.setInputCloud(scene);
+    int K = 1;
+    vector<int> indices_(K);
+    vector<float> distance(K);
+
     for (PointT center : center_list)
     {
-        pcl::KdTreeFLANN<PointT> kdtree;
-        kdtree.setInputCloud(scene);
-        int K = 1;
-        vector<int> indices_(K);
-        vector<float> distance(K);
         kdtree.nearestKSearch(center, K, indices_, distance);
 
         pcl::PointIndices cluster;
         scene_reg.getSegmentFromPoint(indices_[0], cluster);
-
-        pcl::CentroidPoint<PointT> centroid;
-        PointT c1;
-        for (auto point = cluster.indices.begin(); point != cluster.indices.end(); point++)
-        {
-            centroid.add(scene->points[*point]);
-        }
-        centroid.get(c1);
-        if (c1.z == 0.0)
-            continue;
-
-        kdtree.setInputCloud(scene);
-        kdtree.nearestKSearch(c1, K, indices_, distance);
-
-        CenterNormalMsg msg;
-        msg.center.header.frame_id = frame_id;
-        msg.center.header.stamp = ros::Time::now();
-        msg.center.point.x = scene->points[indices_[0]].x;
-        msg.center.point.y = scene->points[indices_[0]].y;
-        msg.center.point.z = scene->points[indices_[0]].z;
-        msg.normal.header.frame_id = frame_id;
-        msg.normal.header.stamp = ros::Time::now();
-        msg.normal.vector.x = scene_normals->points[indices_[0]].normal_x;
-        msg.normal.vector.y = scene_normals->points[indices_[0]].normal_y;
-        msg.normal.vector.z = scene_normals->points[indices_[0]].normal_z;
-        if (msg.normal.vector.z > 0) {
-            msg.normal.vector.x *= -1;
-            msg.normal.vector.y *= -1;
-            msg.normal.vector.z *= -1;
-        }
-
-        centers_msg.centers.push_back(msg.center);
-        normals_msg.normals.push_back(msg.normal);
+        cluster_indices.push_back(cluster);
     }
+
+    sort(cluster_indices.begin(), cluster_indices.end(), compare_indices_size);
+
+    pcl::CentroidPoint<PointT> centroid;
+    PointT c1;
+    for (auto point = cluster_indices[0].indices.begin(); point != cluster_indices[0].indices.end(); point++)
+    {
+        centroid.add(scene->points[*point]);
+    }
+    centroid.get(c1);
+    
+    if (c1.z == 0.0)
+        return;
+
+    kdtree.setInputCloud(scene);
+    kdtree.nearestKSearch(c1, K, indices_, distance);
+
+    CenterNormalMsg msg;
+    msg.center.header.frame_id = frame_id;
+    msg.center.header.stamp = ros::Time::now();
+    msg.center.point.x = scene->points[indices_[0]].x;
+    msg.center.point.y = scene->points[indices_[0]].y;
+    msg.center.point.z = scene->points[indices_[0]].z;
+    msg.normal.header.frame_id = frame_id;
+    msg.normal.header.stamp = ros::Time::now();
+    msg.normal.vector.x = scene_normals->points[indices_[0]].normal_x;
+    msg.normal.vector.y = scene_normals->points[indices_[0]].normal_y;
+    msg.normal.vector.z = scene_normals->points[indices_[0]].normal_z;
+    if (msg.normal.vector.z > 0) {
+        msg.normal.vector.x *= -1;
+        msg.normal.vector.y *= -1;
+        msg.normal.vector.z *= -1;
+    }
+
+    centers_msg.centers.push_back(msg.center);
+    normals_msg.normals.push_back(msg.normal);
 
     center_msg_list.push_back(centers_msg);
     normal_msg_list.push_back(normals_msg);
@@ -200,7 +204,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     normal_estimator.setKSearch (20);
     normal_estimator.compute (*cloud_normals);
     reg.setMinClusterSize (50);
-    reg.setMaxClusterSize (3000);
+    reg.setMaxClusterSize (7000);
     reg.setSearchMethod (tree);
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud);
@@ -361,7 +365,13 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     ROS_INFO("Subscribed Depth Image");
     cv_bridge::CvImagePtr cv_ptr;
     cv_ptr = cv_bridge::toCvCopy(depth_msg, "32FC1");
-    depth = cv_ptr->image.clone();
+    //depth = cv_ptr->image.clone();
+    cv::Mat tmp = cv_ptr->image.clone();
+
+    cv::Mat mapx, mapy;
+    cv::Size imageSize(tmp.cols, tmp.rows);
+    cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
+    cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
 
     int width = depth.cols;
     int height = depth.rows;
@@ -384,6 +394,13 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     voxelSampler.setInputCloud(scene);
     voxelSampler.setLeafSize(0.003, 0.003, 0.003);
     voxelSampler.filter(*scene);
+
+    sensor_msgs::PointCloud2 output_cloud;
+    pcl::toROSMsg(*scene, output_cloud);
+    output_cloud.header.frame_id = frame_id;
+    output_cloud.header.stamp = ros::Time::now();
+
+    scene_surface_pointcloud_pub.publish(output_cloud);
 
     ROS_INFO("Preprocessed Finished");
 }

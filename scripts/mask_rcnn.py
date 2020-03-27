@@ -74,6 +74,7 @@ class MaskRCNNNode(object):
         self.cx = self.camera_matrix[0][2]
         self.cy = self.camera_matrix[1][2]
         self.dist_coeffs = np.array(camera_info.D)
+        self.map = cv2.initUndistortRectifyMap(self.camera_matrix, self.dist_coeffs, np.eye(3), self.camera_matrix, (camera_info.width, camera_info.height), cv2.CV_32FC1)
 
         width = camera_info.width
         height = camera_info.height
@@ -169,7 +170,8 @@ class MaskRCNNNode(object):
     def detect_objects(self, image_msg, depth_msg):
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
-        #np_depth = cv2.undistort(np_depth, self.camera_matrix, self.dist_coeffs)
+        np_depth = cv2.remap(np_depth, self.map[0], self.map[1], cv2.INTER_NEAREST)
+        #np_depth = cv2.warpAffine(np_depth, np.float32([[1,0,-10],[0,1,0]]), (np_depth.shape[1],np_depth.shape[0]))
 
         self.image = np.copy(np_image)
 
