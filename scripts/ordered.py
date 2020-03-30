@@ -60,11 +60,18 @@ class ORDERED_ImageDiff(object):
 
         ids = np.array(msg.ids, dtype=np.uint32)
         boxes = [[box.x_offset, box.y_offset, box.width, box.height] for box in msg.boxes]
-        b = self._assigned_uid2box(msg, ids, boxes)
-        e_proc = time.time()
-        proc_t = e_proc - s_proc
-        rospy.loginfo("%s[s] (Preprocess time)", round(proc_t, 3))
-        self._build_res_msg(msg, b)
+        try:
+            b = self._assigned_uid2box(msg, ids, boxes)
+            e_proc = time.time()
+            proc_t = e_proc - s_proc
+            rospy.loginfo("%s[s] (Preprocess time)", round(proc_t, 3))
+            self._build_res_msg(msg, b)
+        except Exception as e:
+            print(e.args)
+            print('Reset because of Finished')
+            self.uids = None
+            self.ucenters = None
+            self.unormals = None
 
     def _get_img(self, img_msg):
         img = self._cv_bridge.imgmsg_to_cv2(img_msg, 'bgr8')
