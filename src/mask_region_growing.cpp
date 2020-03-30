@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
+#include <cmath>
 
 //ROS
 #include <ros/ros.h>
@@ -39,6 +40,11 @@
 
 using namespace std;
 
+#ifndef M_PI
+#define M_PI 3.14159265358979
+#endif
+#define deg_to_rad(deg) (((deg)/360)*2*M_PI)
+#define rad_to_deg(rad) (((rad)/2/M_PI)*360)
 sensor_msgs::CameraInfoConstPtr camera_info;
 cv::Mat cameraMatrix;
 cv::Mat distCoeffs;
@@ -117,60 +123,84 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
 {
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
-    vector<pcl::PointIndices> cluster_indices;
-    pcl::KdTreeFLANN<PointT> kdtree;
-    kdtree.setInputCloud(scene);
-    int K = 1;
-    vector<int> indices_(K);
-    vector<float> distance(K);
-
     for (PointT center : center_list)
     {
+        pcl::KdTreeFLANN<PointT> kdtree;
+        kdtree.setInputCloud(scene);
+        int K = 1;
+        vector<int> indices_(K);
+        vector<float> distance(K);
         kdtree.nearestKSearch(center, K, indices_, distance);
 
         pcl::PointIndices cluster;
         scene_reg.getSegmentFromPoint(indices_[0], cluster);
-        cluster_indices.push_back(cluster);
+
+        pcl::CentroidPoint<PointT> centroid;
+        PointT c1;
+        for (auto point = cluster.indices.begin(); point != cluster.indices.end(); point++)
+        {
+            centroid.add(scene->points[*point]);
+        }
+        centroid.get(c1);
+        if (c1.z == 0.0)
+            continue;
+
+        kdtree.setInputCloud(scene);
+        kdtree.nearestKSearch(c1, K, indices_, distance);
+
+        CenterNormalMsg msg;
+        msg.center.header.frame_id = frame_id;
+        msg.center.header.stamp = ros::Time::now();
+        msg.center.point.x = scene->points[indices_[0]].x;
+        msg.center.point.y = scene->points[indices_[0]].y;
+        msg.center.point.z = scene->points[indices_[0]].z;
+        msg.normal.header.frame_id = frame_id;
+        msg.normal.header.stamp = ros::Time::now();
+        msg.normal.vector.x = scene_normals->points[indices_[0]].normal_x;
+        msg.normal.vector.y = scene_normals->points[indices_[0]].normal_y;
+        msg.normal.vector.z = scene_normals->points[indices_[0]].normal_z;
+        if (msg.normal.vector.z > 0) {
+            msg.normal.vector.x *= -1;
+            msg.normal.vector.y *= -1;
+            msg.normal.vector.z *= -1;
+        }
+
+        centers_msg.centers.push_back(msg.center);
+        normals_msg.normals.push_back(msg.normal);
     }
-
-    sort(cluster_indices.begin(), cluster_indices.end(), compare_indices_size);
-
-    pcl::CentroidPoint<PointT> centroid;
-    PointT c1;
-    for (auto point = cluster_indices[0].indices.begin(); point != cluster_indices[0].indices.end(); point++)
-    {
-        centroid.add(scene->points[*point]);
-    }
-    centroid.get(c1);
-    
-    if (c1.z == 0.0)
-        return;
-
-    kdtree.setInputCloud(scene);
-    kdtree.nearestKSearch(c1, K, indices_, distance);
-
-    CenterNormalMsg msg;
-    msg.center.header.frame_id = frame_id;
-    msg.center.header.stamp = ros::Time::now();
-    msg.center.point.x = scene->points[indices_[0]].x;
-    msg.center.point.y = scene->points[indices_[0]].y;
-    msg.center.point.z = scene->points[indices_[0]].z;
-    msg.normal.header.frame_id = frame_id;
-    msg.normal.header.stamp = ros::Time::now();
-    msg.normal.vector.x = scene_normals->points[indices_[0]].normal_x;
-    msg.normal.vector.y = scene_normals->points[indices_[0]].normal_y;
-    msg.normal.vector.z = scene_normals->points[indices_[0]].normal_z;
-    if (msg.normal.vector.z > 0) {
-        msg.normal.vector.x *= -1;
-        msg.normal.vector.y *= -1;
-        msg.normal.vector.z *= -1;
-    }
-
-    centers_msg.centers.push_back(msg.center);
-    normals_msg.normals.push_back(msg.normal);
-
     center_msg_list.push_back(centers_msg);
     normal_msg_list.push_back(normals_msg);
+
+    //if (centers_msg.centers.size() == 0) {
+    //    ROS_WARN("Error region growing");
+    //    return;
+    //}
+    //else if (centers_msg.centers.size() == 1)
+    //{    
+    //    center_msg_list.push_back(centers_msg);
+    //    normal_msg_list.push_back(normals_msg);
+    //}
+    //else 
+    //{
+    //    for (int i = 0; i < centers_msg.centers.size(); i++) {
+    //        geometry_msgs::PointStamped center = centers_msg.centers[i];
+    //        geometry_msgs::Vector3Stamped normal = normals_msg.normals[i];
+    //        // (a1b1 + a2b2 + a3b3)/sqrt(a1^2 + a2^2 + a3^2) * sqrt(b1^2 + b2^2 + b3^2)
+    //        // a = (0, 0, 1), b = normal
+    //        float cos_theta = -1 * normal.vector.z/sqrt(pow(normal.vector.x, 2.0) + pow(normal.vector.y, 2.0) + pow(normal.vector.z, 2.0));
+    //        float theta = rad_to_deg(acos(cos_theta));
+    //        if (theta < 30 && theta > -30) {
+    //            centers_msg.centers = {};
+    //            normals_msg.normals = {};
+    //            centers_msg.centers.push_back(center);
+    //            normals_msg.normals.push_back(normal);
+    //            center_msg_list.push_back(centers_msg);
+    //            normal_msg_list.push_back(normals_msg);
+    //            return;
+    //        }
+    //    }
+    //    ROS_WARN("Normal Vector is out of threshold");
+    //}
 }
 
 void maskedRegionGrowing(cv::Mat mask_index)
@@ -193,6 +223,13 @@ void maskedRegionGrowing(cv::Mat mask_index)
     voxelSampler.setLeafSize(0.002, 0.002, 0.002);
     voxelSampler.filter(*cloud);
 
+    //outlier remover
+    pcl::StatisticalOutlierRemoval<PointT> sor;
+    sor.setInputCloud (cloud);
+    sor.setMeanK (30);
+    sor.setStddevMulThresh (0.5);
+    sor.filter (*cloud);
+
     //regiongrowing
     pcl::search::Search<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
     pcl::PointCloud <pcl::Normal>::Ptr cloud_normals (new pcl::PointCloud <pcl::Normal>);
@@ -201,7 +238,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     vector<pcl::PointIndices> indices;
     normal_estimator.setSearchMethod (tree);
     normal_estimator.setInputCloud (cloud);
-    normal_estimator.setKSearch (20);
+    normal_estimator.setKSearch (30);
     normal_estimator.compute (*cloud_normals);
     reg.setMinClusterSize (50);
     reg.setMaxClusterSize (7000);
@@ -209,7 +246,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     reg.setNumberOfNeighbours (30);
     reg.setInputCloud (cloud);
     reg.setInputNormals (cloud_normals);
-    reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
+    reg.setSmoothnessThreshold (10.0 / 180.0 * M_PI);
     reg.setCurvatureThreshold (1.0);
     reg.extract(indices);
 
@@ -263,6 +300,14 @@ void maskedRegionGrowing(cv::Mat mask_index)
             msg.normal.vector.z *= -1;
         }
 
+        //float cos_theta = -1 * msg.normal.vector.z/sqrt(pow(msg.normal.vector.x, 2.0) + pow(msg.normal.vector.y, 2.0) + pow(msg.normal.vector.z, 2.0));
+        //float theta = rad_to_deg(acos(cos_theta));
+        //std::cout << theta << std::endl;
+        //if (theta > 25 || theta < -25) {
+        //    ROS_WARN("Normal Vector is out of threshold");
+        //    return;
+        //}
+
         centers_msg.centers.push_back(msg.center);
         normals_msg.normals.push_back(msg.normal);
 
@@ -295,7 +340,7 @@ void sceneRegionGrowing()
     scene_reg.setNumberOfNeighbours (30);
     scene_reg.setInputCloud (scene);
     scene_reg.setInputNormals (scene_normals);
-    scene_reg.setSmoothnessThreshold (3.0 / 180.0 * M_PI);
+    scene_reg.setSmoothnessThreshold (10.0 / 180.0 * M_PI);
     scene_reg.setCurvatureThreshold (1.0);
     scene_reg.extract(indices);
     scene_surface_list.push_back(scene_reg.getColoredCloud());
@@ -324,8 +369,8 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
 	cv::Mat mask = cv_ptr->image.clone();
 
         //offset
-        cv::Mat offset = (cv::Mat_<double>(2, 3) << 1.0, 0.0, 10.0, 0.0, 1.0, 0.0);
-        cv::warpAffine(mask, mask, offset, mask.size());
+        //cv::Mat offset = (cv::Mat_<double>(2, 3) << 1.0, 0.0, 5.0, 0.0, 1.0, 0.0);
+        //cv::warpAffine(mask, mask, offset, mask.size());
 
 	cv::Mat mask_index;
 	cv::findNonZero(mask, mask_index);
@@ -392,15 +437,21 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     //downsampling
     pcl::VoxelGrid<PointT> voxelSampler;
     voxelSampler.setInputCloud(scene);
-    voxelSampler.setLeafSize(0.003, 0.003, 0.003);
+    voxelSampler.setLeafSize(0.002, 0.002, 0.002);
     voxelSampler.filter(*scene);
 
-    sensor_msgs::PointCloud2 output_cloud;
-    pcl::toROSMsg(*scene, output_cloud);
-    output_cloud.header.frame_id = frame_id;
-    output_cloud.header.stamp = ros::Time::now();
+    pcl::StatisticalOutlierRemoval<PointT> sor;
+    sor.setInputCloud (scene);
+    sor.setMeanK (30);
+    sor.setStddevMulThresh (1.0);
+    sor.filter (*scene);
 
-    scene_surface_pointcloud_pub.publish(output_cloud);
+    //sensor_msgs::PointCloud2 output_cloud;
+    //pcl::toROSMsg(*scene, output_cloud);
+    //output_cloud.header.frame_id = frame_id;
+    //output_cloud.header.stamp = ros::Time::now();
+
+    //scene_surface_pointcloud_pub.publish(output_cloud);
 
     ROS_INFO("Preprocessed Finished");
 }
