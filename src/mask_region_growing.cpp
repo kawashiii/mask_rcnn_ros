@@ -67,8 +67,8 @@ vector<PointCloudColorT::Ptr> masked_surface_list;
 
 ros::Publisher vis_axes_marker;
 ros::Publisher masked_surface_pointcloud_pub;
-ros::Publisher masked_surface_pointcloud_pub;
-ros::Publisher drawed_depth_map_pub;
+ros::Publisher scene_surface_pointcloud_pub;
+ros::Publisher masked_depth_map_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
 std::string depth_topic = "/phoxi_camera/aligned_depth_map";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
@@ -366,7 +366,6 @@ void publishDrawedDepthMap()
         vector<cv::Vec4i> hierarchy;
         cv::findContours(mask, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
         cv::drawContours(vis_depth, contours, -1, cv::Scalar(0, 0, 255), 4);
-
     }
 
     std_msgs::Header header;
@@ -374,7 +373,7 @@ void publishDrawedDepthMap()
     header.frame_id = frame_id;
     sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(header, "bgr8", vis_depth).toImageMsg();
     
-    drawed_depth_map_pub.publish(image_msg);
+    masked_depth_map_pub.publish(image_msg);
 }
 
 bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask_rcnn_ros::GetMaskedSurface::Response &res)
