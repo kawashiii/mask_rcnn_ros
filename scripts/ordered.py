@@ -11,6 +11,7 @@ from geometry_msgs.msg import Vector3
 from geometry_msgs.msg import Vector3Stamped
 from sensor_msgs.msg import Image
 from mask_rcnn_ros.msg import MaskRCNNMsg, ORDEREDMsg
+from mask_rcnn_ros.srv import *
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 
@@ -33,7 +34,8 @@ class ORDERED_ImageDiff(object):
         self._res_pub = rospy.Publisher(rospy.get_name()+'/ORDEREDMsg', ORDEREDMsg, queue_size=1, latch=True)
         # rospy.Subscriber("/pylon_camera_node/image_raw", Image, self._call_img)
         # rospy.Subscriber("/phoxi_camera/external_camera_texture", Image, self._call_img)
-        rospy.Subscriber("/mask_rcnn/MaskRCNNMsg", MaskRCNNMsg, self._call_get_maskmsg)
+        ordered_srv = rospy.Service(rospy.get_name()+'/get_ordered_mrcnn', GetOrderedMRCNN, self.get_ordered_mrcnn)
+        #rospy.Subscriber("/mask_rcnn/MaskRCNNMsg", MaskRCNNMsg, self._call_get_maskmsg)
         self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes_ordered', MarkerArray, queue_size=1, latch=True)
         rospy.loginfo("Ready to be called service")
         rospy.spin()
@@ -43,9 +45,20 @@ class ORDERED_ImageDiff(object):
 #        fgm = self._fgbg.apply(img)
 #        self.fgmask = cv2.threshold(fgm, 200, 255, cv2.THRESH_BINARY)
 #        self.img = img
-    
-    def _call_get_maskmsg(self, msg):
-        # Skip old msg
+
+    def get_ordered_mrcnn(self, req):
+        rospy.wait_for_service('/mask_rcnn/MaskRCNNSrv')
+        msg = MaskRCNNMsg()
+        try:
+            srvCurrentMaskRCNN = rospy.ServiceProxy('/mask_rcnn/MaskRCNNSrv', MaskRCNNSrv)
+            msg = srvCurrentMaskRCNN().detectedMaskRCNN
+            print("ORDERED NewMaskRCNN received")
+        except rospy.ServiceException as e:
+            print(e)
+
+        res = GetOrderedMRCNNResponse()
+
+         # Skip old msg
         now = rospy.get_time()
         if (now - msg.header.stamp.secs > 30):
             self.is_subscriber_called = False
@@ -66,12 +79,15 @@ class ORDERED_ImageDiff(object):
             proc_t = e_proc - s_proc
             rospy.loginfo("%s[s] (Preprocess time)", round(proc_t, 3))
             self._build_res_msg(msg, b)
+            res.orderedMaskRCNN = self.res_msg
         except Exception as e:
             print(e.args)
             print('Reset because of Finished')
             self.uids = None
             self.ucenters = None
             self.unormals = None
+        
+        return res
 
     def _get_img(self, img_msg):
         img = self._cv_bridge.imgmsg_to_cv2(img_msg, 'bgr8')
