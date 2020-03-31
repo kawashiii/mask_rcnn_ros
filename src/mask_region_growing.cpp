@@ -49,6 +49,7 @@ sensor_msgs::CameraInfoConstPtr camera_info;
 cv::Mat cameraMatrix;
 cv::Mat distCoeffs;
 cv::Mat depth;
+vector<sensor_msgs::Image> mask_msgs;
 double fx;
 double fy;
 double cx;
@@ -66,7 +67,8 @@ vector<PointCloudColorT::Ptr> masked_surface_list;
 
 ros::Publisher vis_axes_marker;
 ros::Publisher masked_surface_pointcloud_pub;
-ros::Publisher scene_surface_pointcloud_pub;
+ros::Publisher masked_surface_pointcloud_pub;
+ros::Publisher drawed_depth_map_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
 std::string depth_topic = "/phoxi_camera/aligned_depth_map";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
@@ -227,7 +229,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     pcl::StatisticalOutlierRemoval<PointT> sor;
     sor.setInputCloud (cloud);
     sor.setMeanK (30);
-    sor.setStddevMulThresh (0.5);
+    sor.setStddevMulThresh (1.0);
     sor.filter (*cloud);
 
     //regiongrowing
@@ -347,6 +349,34 @@ void sceneRegionGrowing()
     ROS_INFO("Scene RegionGrowing finished");
 }
 
+void publishDrawedDepthMap()
+{
+    cv::Mat vis_depth;
+    cv::Mat tmp;
+    depth.convertTo(tmp, CV_8UC1);
+    cv::cvtColor(tmp, vis_depth, CV_GRAY2BGR);
+    for (sensor_msgs::Image mask_msg : mask_msgs)
+    {
+        cv_bridge::CvImagePtr cv_ptr;
+        cv_ptr = cv_bridge::toCvCopy(mask_msg, "8UC1");
+        cv::Mat mask = cv_ptr->image.clone();
+
+        cv::threshold(mask, mask, 125, 255, cv::THRESH_BINARY);
+        vector<vector<cv::Point> > contours;
+        vector<cv::Vec4i> hierarchy;
+        cv::findContours(mask, contours, hierarchy, cv::RETR_EXTERNAL, cv::CHAIN_APPROX_NONE);
+        cv::drawContours(vis_depth, contours, -1, cv::Scalar(0, 0, 255), 4);
+
+    }
+
+    std_msgs::Header header;
+    header.stamp = ros::Time::now();
+    header.frame_id = frame_id;
+    sensor_msgs::ImagePtr image_msg = cv_bridge::CvImage(header, "bgr8", vis_depth).toImageMsg();
+    
+    drawed_depth_map_pub.publish(image_msg);
+}
+
 bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask_rcnn_ros::GetMaskedSurface::Response &res)
 {
     ROS_INFO("Service called");
@@ -361,7 +391,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     sceneRegionGrowing();
    
     int count = 0;
-    vector<sensor_msgs::Image> mask_msgs = req.masks;
+    mask_msgs = req.masks;
     for (sensor_msgs::Image mask_msg : mask_msgs)
     {
         cv_bridge::CvImagePtr cv_ptr;
@@ -394,7 +424,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     //    res.normals.push_back(msg.normal);
     //}
 
-    vis_axes_marker.publish(marker_axes_list);
+    //vis_axes_marker.publish(marker_axes_list);
    
     ros::WallTime end_process_time = ros::WallTime::now();
     double execution_process_time = (end_process_time - start_process_time).toNSec() * 1e-9;
@@ -489,6 +519,7 @@ int main(int argc, char *argv[])
 
     scene_surface_pointcloud_pub = nh.advertise<sensor_msgs::PointCloud2>(ros::this_node::getName() + "/scene_surface_pointcloud", 0, true);
     masked_surface_pointcloud_pub = nh.advertise<sensor_msgs::PointCloud2>(ros::this_node::getName() + "/masked_surface_pointcloud", 0, true);
+    masked_depth_map_pub = nh.advertise<sensor_msgs::Image>(ros::this_node::getName() + "/masked_depth_map", 0, true);
 
     ros::Rate loop_rate(10);
     while(ros::ok())
@@ -514,7 +545,11 @@ int main(int argc, char *argv[])
             masked_surface_msg.header.frame_id = frame_id;
             masked_surface_msg.header.stamp = ros::Time::now();
             masked_surface_pointcloud_pub.publish(masked_surface_msg);
+            // publish aligned_depth_map drawed some information
+            publishDrawedDepthMap();
+
             is_service_called = false;
+            
         }
         ros::spinOnce();
         loop_rate.sleep();
