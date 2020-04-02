@@ -217,7 +217,8 @@ class MaskRCNNNode(object):
             biggest_mask = self.get_biggest_mask(mask)
             mask_msg = self.cv_bridge.cv2_to_imgmsg(biggest_mask, 'mono8')
             mask_msgs.append(mask_msg)
-            
+           
+            # Draw information to image 
             id_caption = "ID:" + str(i)
             class_caption = class_name + " " +  str(round(score, 3))
             cv2.putText(self.vis_processed_result, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
@@ -236,23 +237,64 @@ class MaskRCNNNode(object):
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
 
-        result_msg.ids = []
-        count = 0
-        result_msg.count = 0
+        sort_item = []
+        check_center_list = []
         for i, (centers_msg, normals_msg) in enumerate(zip(res.centers_list, res.normals_list)):
-            
             for j, (center, normal) in enumerate(zip(centers_msg.centers, normals_msg.normals)):
-                result_msg.normals.append(normal)
-                result_msg.centers.append(center)
-                result_msg.axes.append(normal)
-                normal_marker = self.build_marker_msg(center.header.frame_id, Marker.ARROW, count, center.point, normal.vector, 0.0, 0.0, 1.0, "normal")
-                text_marker = self.build_marker_msg(center.header.frame_id, Marker.TEXT_VIEW_FACING, count, center.point, normal.vector, 1.0, 1.0, 1.0, "id_text")
-                axes_msg.markers.append(normal_marker)
-                axes_msg.markers.append(text_marker)
-    
-                result_msg.ids.append(count)
-                result_msg.count += 1
-                count+=1
+                if (center.point.z == 0.0) : continue
+                if center.point in check_center_list : continue
+                check_center_list.append(center.point)
+                sort_item.append([i, center, normal, result_msg.boxes[i]])
+
+        highest_item = sorted(sort_item, key=lambda x:x[1].point.z)
+        highest_good_normal_list = []
+        most_same_height_list = []
+        height = -1
+        for item in highest_item:
+            if len(most_same_height_list) == 0:
+                height = item[1].point.z
+                most_same_height_list.append(item)
+                continue
+
+            if item[1].point.z - height < 0.02:
+                most_same_height_list.append(item)
+            else:
+                bad_normal_list = []
+                for h in most_same_height_list:
+                    if h[2].vector.z < -0.9:
+                        highest_good_normal_list.append(h)
+                    else:
+                        bad_normal_list.append(h)
+                if len(bad_normal_list) != 0: 
+                    sorted_bad_normal_list = sorted(bad_normal_list, key=lambda x:x[2].vector.z)
+                    highest_good_normal_list += sorted_bad_normal_list
+                #good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
+                #highest_good_normal_list += good_normal_list
+                most_same_height_list = []
+                most_same_height_list.append(item)
+                height = item[1].point.z
+
+        if len(most_same_height_list) != 0:
+            good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
+            highest_good_normal_list += good_normal_list
+            
+        result_msg.count = 0
+        result_msg.ids = []
+        result_msg.boxes = []
+        for i, item in enumerate(highest_good_normal_list):
+        #for i, item in enumerate(highest_item):
+            result_msg.ids.append(i)
+            result_msg.centers.append(item[1])
+            result_msg.normals.append(item[2])
+            result_msg.axes.append(item[2])
+            result_msg.boxes.append(item[3])
+            result_msg.count += 1
+                
+            normal_marker = self.build_marker_msg(item[1].header.frame_id, Marker.ARROW, i, item[1].point, item[2].vector, 0.0, 0.0, 1.0, "normal")
+            text_marker = self.build_marker_msg(item[1].header.frame_id, Marker.TEXT_VIEW_FACING, i, item[1].point, item[2].vector, 1.0, 1.0, 1.0, "id_text")
+            axes_msg.markers.append(normal_marker)
+            axes_msg.markers.append(text_marker)
+
         
         self.result_pub.publish(result_msg)
         self.marker_pub.publish(axes_msg)
@@ -268,10 +310,10 @@ class MaskRCNNNode(object):
             contours.sort(key=len, reverse=True)
             rospy.logwarn("This object is used the biggest mask")
 
-        countour = contours[0]
+        contour = contours[0]
         zero_image = np.zeros(mask.shape, dtype=np.uint8)
-        ret_mask = cv2.fillPoly(zero_image, [countour], color=(255,255,255))
-        self.vis_processed_result = cv2.fillPoly(self.vis_processed_result, [countour], color=(255,200,255))
+        ret_mask = cv2.fillPoly(zero_image, [contour], color=(255,255,255))
+        self.vis_processed_result = cv2.fillPoly(self.vis_processed_result, [contour], color=(255,200,255))
 
         return ret_mask
 
