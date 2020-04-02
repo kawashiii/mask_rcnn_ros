@@ -1,3 +1,4 @@
+bool is_rigid_object
 sensor_msgs/Image[] masks
 ---
 Centers[] centers_list

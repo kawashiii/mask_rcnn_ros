@@ -191,6 +191,7 @@ class MaskRCNNNode(object):
         axes_msg.markers.append(delete_marker)
 
         mask_msgs=[]
+        is_rigid_object = True
         
         for i, (y1, x1, y2, x2) in enumerate(self.result['rois']):
             rospy.loginfo("ID:%s '%s' is detected", str(i), self.class_names[self.result['class_ids'][i]])
@@ -209,6 +210,7 @@ class MaskRCNNNode(object):
 
             class_name = self.class_names[class_id]
             result_msg.class_names.append(class_name)
+            if class_name == "koiwashi": is_rigid_object = False
 
             score = self.result['scores'][i]
             result_msg.scores.append(score)
@@ -233,7 +235,7 @@ class MaskRCNNNode(object):
 
         try:
             get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
-            res = get_masked_surface(mask_msgs)
+            res = get_masked_surface(is_rigid_object, mask_msgs)
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
 

@@ -326,6 +326,61 @@ void maskedRegionGrowing(cv::Mat mask_index)
     }
 }
 
+void computeCenter(cv::Mat mask_index)
+{
+    PointCloudT::Ptr cloud (new PointCloudT);
+    pcl::CentroidPoint<PointT> centroid;
+    PointT c1;
+    std::vector<float> z_list;
+    for (int i = 0; i < mask_index.total(); i++)
+    {
+        int u = mask_index.at<cv::Point>(i).x;
+	int v = mask_index.at<cv::Point>(i).y;
+	PointT p;
+	p.z = depth.at<float>(v, u) / 1000;
+	p.x = (u - cx) * p.z / fx;
+	p.y = (v - cy) * p.z / fy;
+	cloud->points.push_back(p);
+        z_list.push_back(p.z);
+        centroid.add(p);
+    }
+
+    centroid.get(c1);
+
+    pcl::KdTreeFLANN<PointT> kdtree;
+    kdtree.setInputCloud(cloud);
+    int K = 1;
+    vector<int> indices_(K);
+    vector<float> distance(K);
+    kdtree.setInputCloud(cloud);
+    kdtree.nearestKSearch(c1, K, indices_, distance);
+
+    std::sort(z_list.begin(), z_list.end());
+    size_t n = z_list.size() / 2;
+
+    CenterNormalMsg msg;
+    msg.center.header.frame_id = frame_id;
+    msg.center.header.stamp = ros::Time::now();
+    msg.center.point.x = cloud->points[indices_[0]].x;
+    msg.center.point.y = cloud->points[indices_[0]].y;
+    //msg.center.point.z = cloud->points[indices_[0]].z;
+    msg.center.point.z = z_list[n];
+    msg.normal.header.frame_id = frame_id;
+    msg.normal.header.stamp = ros::Time::now();
+    msg.normal.vector.x = 0.0;
+    msg.normal.vector.y = 0.0;
+    msg.normal.vector.z = -1.0;
+
+    mask_rcnn_ros::Centers centers_msg;
+    mask_rcnn_ros::Normals normals_msg;
+    
+    centers_msg.centers.push_back(msg.center);
+    normals_msg.normals.push_back(msg.normal);
+
+    center_msg_list.push_back(centers_msg);
+    normal_msg_list.push_back(normals_msg);
+}
+
 void markerInitialization()
 {
     marker_axes_list = {};
@@ -399,6 +454,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
    
     int count = 0;
     mask_msgs = req.masks;
+    bool is_rigid_object = req.is_rigid_object;
     for (sensor_msgs::Image mask_msg : mask_msgs)
     {
         cv_bridge::CvImagePtr cv_ptr;
@@ -413,7 +469,10 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
 	cv::findNonZero(mask, mask_index);
 
 	ROS_INFO("ID:%d", count);
-	maskedRegionGrowing(mask_index);
+	if (is_rigid_object)
+            maskedRegionGrowing(mask_index);
+        else
+            computeCenter(mask_index);
 
 	count++;
     }
