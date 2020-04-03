@@ -365,11 +365,11 @@ void computeCenter(cv::Mat mask_index)
     msg.center.point.y = cloud->points[indices_[0]].y;
     //msg.center.point.z = cloud->points[indices_[0]].z;
     msg.center.point.z = z_list[n];
-    msg.normal.header.frame_id = frame_id;
+    msg.normal.header.frame_id = "world";
     msg.normal.header.stamp = ros::Time::now();
     msg.normal.vector.x = 0.0;
     msg.normal.vector.y = 0.0;
-    msg.normal.vector.z = -1.0;
+    msg.normal.vector.z = 1.0;
 
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
