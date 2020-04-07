@@ -138,6 +138,8 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
         pcl::PointIndices cluster;
         scene_reg.getSegmentFromPoint(indices_[0], cluster);
 
+        ROS_INFO("Global Surface point cloud size: %d", (int)cluster.indices.size()); 
+
         pcl::CentroidPoint<PointT> centroid;
         PointT c1;
         for (auto point = cluster.indices.begin(); point != cluster.indices.end(); point++)
@@ -147,7 +149,7 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
         centroid.get(c1);
         if (c1.z == 0.0) {
             ROS_WARN("Center was zero");
-            continue;
+            //continue;
         }
 
         kdtree.setInputCloud(scene);
@@ -272,6 +274,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     {
         pcl::CentroidPoint<PointT> centroid;
         PointT center;
+        ROS_INFO("Local Surface point cloud size: %d", (int)i->indices.size()); 
         for (auto point = i->indices.begin(); point != i->indices.end(); point++)
         {
             centroid.add(cloud->points[*point]);
