@@ -241,12 +241,12 @@ class MaskRCNNNode(object):
 
         sort_item = []
         check_center_list = []
-        for i, (centers_msg, normals_msg) in enumerate(zip(res.centers_list, res.normals_list)):
-            for j, (center, normal) in enumerate(zip(centers_msg.centers, normals_msg.normals)):
+        for i, (centers_msg, normals_msg, areas_msg) in enumerate(zip(res.centers_list, res.normals_list, res.areas_list)):
+            for j, (center, normal, area) in enumerate(zip(centers_msg.centers, normals_msg.normals, areas_msg.areas)):
                 if (center.point.z == 0.0) : continue
                 if center.point in check_center_list : continue
                 check_center_list.append(center.point)
-                sort_item.append([i, center, normal, result_msg.boxes[i]])
+                sort_item.append([i, center, normal, result_msg.boxes[i], area])
 
         highest_item = sorted(sort_item, key=lambda x:x[1].point.z)
         highest_good_normal_list = []
@@ -290,6 +290,7 @@ class MaskRCNNNode(object):
             result_msg.normals.append(item[2])
             result_msg.axes.append(item[2])
             result_msg.boxes.append(item[3])
+            result_msg.areas.append(item[4])
             result_msg.count += 1
                 
             normal_marker = self.build_marker_msg(item[1].header.frame_id, Marker.ARROW, i, item[1].point, item[2].vector, 0.0, 0.0, 1.0, "normal")

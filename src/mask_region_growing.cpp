@@ -29,6 +29,7 @@
 #include <pcl/kdtree/kdtree.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/segmentation/region_growing_rgb.h>
+#include <pcl/surface/convex_hull.h>
 
 //OpenCv
 #include <opencv2/imgproc/imgproc.hpp>
@@ -38,6 +39,7 @@
 #include "mask_rcnn_ros/GetMaskedSurface.h"
 #include "mask_rcnn_ros/Centers.h"
 #include "mask_rcnn_ros/Normals.h"
+#include "mask_rcnn_ros/Areas.h"
 
 using namespace std;
 
@@ -75,6 +77,7 @@ std::string depth_topic = "/phoxi_camera/aligned_depth_map";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
 vector<mask_rcnn_ros::Centers> center_msg_list;
 vector<mask_rcnn_ros::Normals> normal_msg_list;
+vector<mask_rcnn_ros::Areas> area_msg_list;
 //vector<geometry_msgs::PointStamped> center_msg_list;
 //vector<geometry_msgs::Vector3Stamped> normal_msg_list;
 visualization_msgs::MarkerArray marker_axes_list;
@@ -86,6 +89,7 @@ float is_service_called = false;
 struct CenterNormalMsg{
     geometry_msgs::PointStamped center;
     geometry_msgs::Vector3Stamped normal;
+    float area;
 };
 
 bool compare_indices_size(const pcl::PointIndices& lp, const pcl::PointIndices& rp)
@@ -122,18 +126,32 @@ visualization_msgs::Marker build_marker_msg(std_msgs::Header header, string ns, 
     return marker;
 }
 
-void sceneRegionGrowingFromPoint(vector<PointT> center_list)
+float getArea(PointCloudT::Ptr cloud_in)
+{
+    PointCloudT::Ptr cloud_out(new PointCloudT);
+
+    pcl::ConvexHull<PointT> chull;
+    chull.setInputCloud(cloud_in);
+    chull.setComputeAreaVolume(true);
+    chull.reconstruct(*cloud_out);
+
+    return chull.getTotalArea();
+}
+
+void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT::Ptr> cloud_list)
 {
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
-    for (PointT center : center_list)
+    mask_rcnn_ros::Areas areas_msg;
+    //for (PointT center : center_list)
+    for (int i = 0; i < center_list.size(); i++)
     {
         pcl::KdTreeFLANN<PointT> kdtree;
         kdtree.setInputCloud(scene);
         int K = 1;
         vector<int> indices_(K);
         vector<float> distance(K);
-        kdtree.nearestKSearch(center, K, indices_, distance);
+        kdtree.nearestKSearch(center_list[i], K, indices_, distance);
 
         pcl::PointIndices cluster;
         scene_reg.getSegmentFromPoint(indices_[0], cluster);
@@ -155,6 +173,8 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
         kdtree.setInputCloud(scene);
         kdtree.nearestKSearch(c1, K, indices_, distance);
 
+        float area = getArea(cloud_list[i]);
+
         CenterNormalMsg msg;
         msg.center.header.frame_id = frame_id;
         msg.center.header.stamp = ros::Time::now();
@@ -171,9 +191,11 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
             msg.normal.vector.y *= -1;
             msg.normal.vector.z *= -1;
         }
+        msg.area = area;
 
         centers_msg.centers.push_back(msg.center);
         normals_msg.normals.push_back(msg.normal);
+        areas_msg.areas.push_back(msg.area);
     }
     //center_msg_list.push_back(centers_msg);
     //normal_msg_list.push_back(normals_msg);
@@ -187,12 +209,14 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
     {    
         center_msg_list.push_back(centers_msg);
         normal_msg_list.push_back(normals_msg);
+        area_msg_list.push_back(areas_msg);
     }
     else 
     {
         float angle = 180.0;
         mask_rcnn_ros::Centers best_centers_msg;
         mask_rcnn_ros::Normals best_normals_msg;
+        mask_rcnn_ros::Areas best_areas_msg;
         for (int i = 0; i < centers_msg.centers.size(); i++) {
             geometry_msgs::PointStamped center = centers_msg.centers[i];
             geometry_msgs::Vector3Stamped normal = normals_msg.normals[i];
@@ -207,11 +231,13 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list)
                 best_normals_msg.normals = {};
                 best_centers_msg.centers.push_back(center);
                 best_normals_msg.normals.push_back(normal);
+                best_areas_msg.areas.push_back(areas_msg.areas[i]);
                 angle = fabsf(theta);
             }
         }
         center_msg_list.push_back(best_centers_msg);
         normal_msg_list.push_back(best_normals_msg);
+        area_msg_list.push_back(best_areas_msg);
     }
 }
 
@@ -270,23 +296,28 @@ void maskedRegionGrowing(cv::Mat mask_index)
     ROS_INFO("%d surfaces found", (int)indices.size());
     masked_surface_list.push_back(reg.getColoredCloud());
     vector<PointT> center_list;
+    vector<PointCloudT::Ptr> cloud_list;
     for (auto i = indices.begin(); i != indices.end(); i++)
     {
         pcl::CentroidPoint<PointT> centroid;
+        PointCloudT::Ptr tmp(new PointCloudT);
         PointT center;
         ROS_INFO("Local Surface point cloud size: %d", (int)i->indices.size()); 
         for (auto point = i->indices.begin(); point != i->indices.end(); point++)
         {
             centroid.add(cloud->points[*point]);
+            tmp->points.push_back(cloud->points[*point]);
         }
         centroid.get(center);
         center_list.push_back(center);
+        cloud_list.push_back(tmp);
     }
 
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
+    mask_rcnn_ros::Areas areas_msg;
     if (center_list.size() > 1) {
-        sceneRegionGrowingFromPoint(center_list);
+        sceneRegionGrowingFromPoint(center_list, cloud_list);
     } else {
         PointT c1 = center_list[0];
         pcl::KdTreeFLANN<PointT> kdtree;
@@ -321,11 +352,15 @@ void maskedRegionGrowing(cv::Mat mask_index)
         //    return;
         //}
 
+        float area = getArea(cloud);
+
         centers_msg.centers.push_back(msg.center);
         normals_msg.normals.push_back(msg.normal);
+        areas_msg.areas.push_back(area);
 
         center_msg_list.push_back(centers_msg);
         normal_msg_list.push_back(normals_msg);
+        area_msg_list.push_back(areas_msg);
     }
 }
 
@@ -451,6 +486,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     masked_surface_list = {};
     center_msg_list = {};
     normal_msg_list = {};
+    area_msg_list = {};
     markerInitialization();
 
     sceneRegionGrowing();
@@ -482,6 +518,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
 
     res.centers_list = center_msg_list;
     res.normals_list = normal_msg_list;
+    res.areas_list = area_msg_list;
     //for (int i = 0; i < center_msg_list.size(); i++)
     //{
     //    CenterNormalMsg msg; 

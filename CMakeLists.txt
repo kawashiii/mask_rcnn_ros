@@ -57,6 +57,7 @@ add_message_files(
   MaskRCNNMsg.msg
   Centers.msg
   Normals.msg
+  Areas.msg
 #   Message1.msg
 #   Message2.msg
 )
