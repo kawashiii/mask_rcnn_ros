@@ -58,6 +58,7 @@ add_message_files(
   Centers.msg
   Normals.msg
   Areas.msg
+  MaskedObjectAttributes.msg
 #   Message1.msg
 #   Message2.msg
 )

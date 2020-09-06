@@ -24,6 +24,7 @@
 #include <pcl/filters/project_inliers.h>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/features/moment_of_inertia_estimation.h>
 #include <pcl/features/normal_3d.h>
 #include <pcl/io/pcd_io.h>
 #include <pcl/kdtree/kdtree.h>
@@ -40,6 +41,7 @@
 #include "mask_rcnn_ros/Centers.h"
 #include "mask_rcnn_ros/Normals.h"
 #include "mask_rcnn_ros/Areas.h"
+#include "mask_rcnn_ros/MaskedObjectAttributes.h"
 
 using namespace std;
 
@@ -78,10 +80,11 @@ std::string frame_id = "basler_ace_rgb_sensor_calibrated";
 vector<mask_rcnn_ros::Centers> center_msg_list;
 vector<mask_rcnn_ros::Normals> normal_msg_list;
 vector<mask_rcnn_ros::Areas> area_msg_list;
-//vector<geometry_msgs::PointStamped> center_msg_list;
-//vector<geometry_msgs::Vector3Stamped> normal_msg_list;
+vector<mask_rcnn_ros::MaskedObjectAttributes> moas_msg_list;
 visualization_msgs::MarkerArray marker_axes_list;
 geometry_msgs::Vector3 arrow_scale;
+std_msgs::ColorRGBA x_axis_color;
+std_msgs::ColorRGBA y_axis_color;
 std_msgs::ColorRGBA z_axis_color;
 
 float is_service_called = false;
@@ -138,11 +141,35 @@ float getArea(PointCloudT::Ptr cloud_in)
     return chull.getTotalArea();
 }
 
+vector<Eigen::Vector3f> getMomentOfInertia(PointCloudT::Ptr cloud_in)
+{
+    PointT min_point_AABB;
+    PointT max_point_AABB;
+    PointT min_point_OBB;
+    PointT max_point_OBB;
+    PointT position_OBB;
+    Eigen::Matrix3f rotational_matrix_OBB;
+    Eigen::Vector3f major_vector, middle_vector, minor_vector;
+
+    pcl::MomentOfInertiaEstimation <PointT> feature_extractor;
+    feature_extractor.setInputCloud (cloud_in);
+    feature_extractor.compute ();
+    feature_extractor.getAABB (min_point_AABB, max_point_AABB);
+    feature_extractor.getOBB (min_point_OBB, max_point_OBB, position_OBB, rotational_matrix_OBB);
+    feature_extractor.getEigenVectors (major_vector, middle_vector, minor_vector);
+
+    vector<Eigen::Vector3f> ret_vectors{major_vector, middle_vector, minor_vector};
+
+    return ret_vectors;
+
+}
+
 void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT::Ptr> cloud_list)
 {
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
     mask_rcnn_ros::Areas areas_msg;
+    mask_rcnn_ros::MaskedObjectAttributes moas_msg;
     //for (PointT center : center_list)
     for (int i = 0; i < center_list.size(); i++)
     {
@@ -173,72 +200,148 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT:
         kdtree.setInputCloud(scene);
         kdtree.nearestKSearch(c1, K, indices_, distance);
 
+        geometry_msgs::PointStamped center;
+        geometry_msgs::Vector3Stamped normal;
+        center.header.frame_id = frame_id;
+        center.header.stamp = ros::Time::now();
+        center.point.x = scene->points[indices_[0]].x;
+        center.point.y = scene->points[indices_[0]].y;
+        center.point.z = scene->points[indices_[0]].z;
+        normal.header.frame_id = frame_id;
+        normal.header.stamp = ros::Time::now();
+        normal.vector.x = scene_normals->points[indices_[0]].normal_x;
+        normal.vector.y = scene_normals->points[indices_[0]].normal_y;
+        normal.vector.z = scene_normals->points[indices_[0]].normal_z;
+        if (normal.vector.z > 0) {
+            normal.vector.x *= -1;
+            normal.vector.y *= -1;
+            normal.vector.z *= -1;
+        }
+
         float area = getArea(cloud_list[i]);
 
-        CenterNormalMsg msg;
-        msg.center.header.frame_id = frame_id;
-        msg.center.header.stamp = ros::Time::now();
-        msg.center.point.x = scene->points[indices_[0]].x;
-        msg.center.point.y = scene->points[indices_[0]].y;
-        msg.center.point.z = scene->points[indices_[0]].z;
-        msg.normal.header.frame_id = frame_id;
-        msg.normal.header.stamp = ros::Time::now();
-        msg.normal.vector.x = scene_normals->points[indices_[0]].normal_x;
-        msg.normal.vector.y = scene_normals->points[indices_[0]].normal_y;
-        msg.normal.vector.z = scene_normals->points[indices_[0]].normal_z;
-        if (msg.normal.vector.z > 0) {
-            msg.normal.vector.x *= -1;
-            msg.normal.vector.y *= -1;
-            msg.normal.vector.z *= -1;
-        }
-        msg.area = area;
+	vector<Eigen::Vector3f> axes = getMomentOfInertia(cloud_list[i]);
+        geometry_msgs::Vector3Stamped x_axis;
+        geometry_msgs::Vector3Stamped y_axis;
+        geometry_msgs::Vector3Stamped z_axis;
+        x_axis.header.frame_id = frame_id;
+        x_axis.header.stamp = ros::Time::now();
+        x_axis.vector.x = axes[0](0);
+        x_axis.vector.y = axes[0](1);
+        x_axis.vector.z = axes[0](2);
+        y_axis.header.frame_id = frame_id;
+        y_axis.header.stamp = ros::Time::now();
+        y_axis.vector.x = axes[1](0);
+        y_axis.vector.y = axes[1](1);
+        y_axis.vector.z = axes[1](2);
+        z_axis.header.frame_id = frame_id;
+        z_axis.header.stamp = ros::Time::now();
+        z_axis.vector.x = axes[2](0);
+        z_axis.vector.y = axes[2](1);
+        z_axis.vector.z = axes[2](2);
 
-        centers_msg.centers.push_back(msg.center);
-        normals_msg.normals.push_back(msg.normal);
-        areas_msg.areas.push_back(msg.area);
+	moas_msg.centers.push_back(center);
+	moas_msg.normals.push_back(normal);
+	moas_msg.areas.push_back(area);
+	moas_msg.x_axes.push_back(x_axis);
+	moas_msg.y_axes.push_back(y_axis);
+	moas_msg.z_axes.push_back(z_axis);
+
+        //CenterNormalMsg msg;
+        //msg.center.header.frame_id = frame_id;
+        //msg.center.header.stamp = ros::Time::now();
+        //msg.center.point.x = scene->points[indices_[0]].x;
+        //msg.center.point.y = scene->points[indices_[0]].y;
+        //msg.center.point.z = scene->points[indices_[0]].z;
+        //msg.normal.header.frame_id = frame_id;
+        //msg.normal.header.stamp = ros::Time::now();
+        //msg.normal.vector.x = scene_normals->points[indices_[0]].normal_x;
+        //msg.normal.vector.y = scene_normals->points[indices_[0]].normal_y;
+        //msg.normal.vector.z = scene_normals->points[indices_[0]].normal_z;
+        //if (msg.normal.vector.z > 0) {
+            //msg.normal.vector.x *= -1;
+            //msg.normal.vector.y *= -1;
+            //msg.normal.vector.z *= -1;
+        //}
+        //msg.area = area;
+
+        //centers_msg.centers.push_back(msg.center);
+        //normals_msg.normals.push_back(msg.normal);
+        //areas_msg.areas.push_back(msg.area);
     }
-    //center_msg_list.push_back(centers_msg);
-    //normal_msg_list.push_back(normals_msg);
+
+    if (moas_msg.centers.size() == 1)
+    {
+	moas_msg_list.push_back(moas_msg);
+    }
+    else
+    {
+	float angle = 180.0;
+	mask_rcnn_ros::MaskedObjectAttributes best_moas_msg;
+	for (int i = 0; i < moas_msg.centers.size(); i++)
+	{
+	    geometry_msgs::PointStamped center = moas_msg.centers[i];
+	    geometry_msgs::Vector3Stamped normal = moas_msg.normals[i];
+	    // (a1b1 + a2b2 + a3b3)/sqrt(a1^2 + a2^2 + a3^2) * sqrt(b1^2 + b2^2 + b3^2)
+	    // a = (0, 0, 1), b = normal
+	    float cos_theta = -1 * normal.vector.z/sqrt(pow(normal.vector.x, 2.0) + pow(normal.vector.y, 2.0) + pow(normal.vector.z, 2.0));
+	    float theta = rad_to_deg(acos(cos_theta));
+	    //std::cout << theta << std::endl;
+
+	    if (fabsf(theta) < angle) {
+		best_moas_msg = mask_rcnn_ros::MaskedObjectAttributes();
+	        best_moas_msg.centers.push_back(center);
+	        best_moas_msg.normals.push_back(normal);
+	        best_moas_msg.areas.push_back(moas_msg.areas[i]);
+	        best_moas_msg.x_axes.push_back(moas_msg.x_axes[i]);
+	        best_moas_msg.y_axes.push_back(moas_msg.y_axes[i]);
+	        best_moas_msg.z_axes.push_back(moas_msg.z_axes[i]);
+
+		angle = fabsf(theta);
+	    }
+	}
+	moas_msg_list.push_back(best_moas_msg);
+    }
 
     //if (centers_msg.centers.size() == 0) {
     //    ROS_WARN("Error region growing");
     //    return;
     //}
     //else if (centers_msg.centers.size() == 1)
-    if (centers_msg.centers.size() == 1)
-    {    
-        center_msg_list.push_back(centers_msg);
-        normal_msg_list.push_back(normals_msg);
-        area_msg_list.push_back(areas_msg);
-    }
-    else 
-    {
-        float angle = 180.0;
-        mask_rcnn_ros::Centers best_centers_msg;
-        mask_rcnn_ros::Normals best_normals_msg;
-        mask_rcnn_ros::Areas best_areas_msg;
-        for (int i = 0; i < centers_msg.centers.size(); i++) {
-            geometry_msgs::PointStamped center = centers_msg.centers[i];
-            geometry_msgs::Vector3Stamped normal = normals_msg.normals[i];
-            // (a1b1 + a2b2 + a3b3)/sqrt(a1^2 + a2^2 + a3^2) * sqrt(b1^2 + b2^2 + b3^2)
-            // a = (0, 0, 1), b = normal
-            float cos_theta = -1 * normal.vector.z/sqrt(pow(normal.vector.x, 2.0) + pow(normal.vector.y, 2.0) + pow(normal.vector.z, 2.0));
-            float theta = rad_to_deg(acos(cos_theta));
-            //std::cout << theta << std::endl;
+    //if (centers_msg.centers.size() == 1)
+    //{    
+        //center_msg_list.push_back(centers_msg);
+        //normal_msg_list.push_back(normals_msg);
+        //area_msg_list.push_back(areas_msg);
+    //}
+    //else 
+    //{
+        //float angle = 180.0;
+        //mask_rcnn_ros::Centers best_centers_msg;
+        //mask_rcnn_ros::Normals best_normals_msg;
+        //mask_rcnn_ros::Areas best_areas_msg;
+        //for (int i = 0; i < centers_msg.centers.size(); i++) {
+            //geometry_msgs::PointStamped center = centers_msg.centers[i];
+            //geometry_msgs::Vector3Stamped normal = normals_msg.normals[i];
+            //// (a1b1 + a2b2 + a3b3)/sqrt(a1^2 + a2^2 + a3^2) * sqrt(b1^2 + b2^2 + b3^2)
+            //// a = (0, 0, 1), b = normal
+            //float cos_theta = -1 * normal.vector.z/sqrt(pow(normal.vector.x, 2.0) + pow(normal.vector.y, 2.0) + pow(normal.vector.z, 2.0));
+            //float theta = rad_to_deg(acos(cos_theta));
+            ////std::cout << theta << std::endl;
 
-            if (fabsf(theta) < angle) {
-                best_centers_msg.centers = {};
-                best_normals_msg.normals = {};
-                best_centers_msg.centers.push_back(center);
-                best_normals_msg.normals.push_back(normal);
-                best_areas_msg.areas.push_back(areas_msg.areas[i]);
-                angle = fabsf(theta);
-            }
-        }
-        center_msg_list.push_back(best_centers_msg);
-        normal_msg_list.push_back(best_normals_msg);
-        area_msg_list.push_back(best_areas_msg);
-    }
+            //if (fabsf(theta) < angle) {
+                //best_centers_msg.centers = {};
+                //best_normals_msg.normals = {};
+                //best_centers_msg.centers.push_back(center);
+                //best_normals_msg.normals.push_back(normal);
+                //best_areas_msg.areas.push_back(areas_msg.areas[i]);
+                //angle = fabsf(theta);
+            //}
+        //}
+        //center_msg_list.push_back(best_centers_msg);
+        //normal_msg_list.push_back(best_normals_msg);
+        //area_msg_list.push_back(best_areas_msg);
+    //}
 }
 
 void maskedRegionGrowing(cv::Mat mask_index)
@@ -316,6 +419,7 @@ void maskedRegionGrowing(cv::Mat mask_index)
     mask_rcnn_ros::Centers centers_msg;
     mask_rcnn_ros::Normals normals_msg;
     mask_rcnn_ros::Areas areas_msg;
+    mask_rcnn_ros::MaskedObjectAttributes moas_msg;
     if (center_list.size() > 1) {
         sceneRegionGrowingFromPoint(center_list, cloud_list);
     } else {
@@ -327,40 +431,79 @@ void maskedRegionGrowing(cv::Mat mask_index)
         vector<float> distance(K);
         kdtree.nearestKSearch(c1, K, indices_, distance);
 
-        CenterNormalMsg msg;
-        msg.center.header.frame_id = frame_id;
-        msg.center.header.stamp = ros::Time::now();
-        msg.center.point.x = cloud->points[indices_[0]].x;
-        msg.center.point.y = cloud->points[indices_[0]].y;
-        msg.center.point.z = cloud->points[indices_[0]].z;
-        msg.normal.header.frame_id = frame_id;
-        msg.normal.header.stamp = ros::Time::now();
-        msg.normal.vector.x = cloud_normals->points[indices_[0]].normal_x;
-        msg.normal.vector.y = cloud_normals->points[indices_[0]].normal_y;
-        msg.normal.vector.z = cloud_normals->points[indices_[0]].normal_z;
-        if (msg.normal.vector.z > 0) {
-            msg.normal.vector.x *= -1;
-            msg.normal.vector.y *= -1;
-            msg.normal.vector.z *= -1;
-        }
-
-        //float cos_theta = -1 * msg.normal.vector.z/sqrt(pow(msg.normal.vector.x, 2.0) + pow(msg.normal.vector.y, 2.0) + pow(msg.normal.vector.z, 2.0));
-        //float theta = rad_to_deg(acos(cos_theta));
-        //std::cout << theta << std::endl;
-        //if (theta > 25 || theta < -25) {
-        //    ROS_WARN("Normal Vector is out of threshold");
-        //    return;
+        //CenterNormalMsg msg;
+        //msg.center.header.frame_id = frame_id;
+        //msg.center.header.stamp = ros::Time::now();
+        //msg.center.point.x = cloud->points[indices_[0]].x;
+        //msg.center.point.y = cloud->points[indices_[0]].y;
+        //msg.center.point.z = cloud->points[indices_[0]].z;
+        //msg.normal.header.frame_id = frame_id;
+        //msg.normal.header.stamp = ros::Time::now();
+        //msg.normal.vector.x = cloud_normals->points[indices_[0]].normal_x;
+        //msg.normal.vector.y = cloud_normals->points[indices_[0]].normal_y;
+        //msg.normal.vector.z = cloud_normals->points[indices_[0]].normal_z;
+        //if (msg.normal.vector.z > 0) {
+            //msg.normal.vector.x *= -1;
+            //msg.normal.vector.y *= -1;
+            //msg.normal.vector.z *= -1;
         //}
+
+        geometry_msgs::PointStamped center;
+        geometry_msgs::Vector3Stamped normal;
+        center.header.frame_id = frame_id;
+        center.header.stamp = ros::Time::now();
+        center.point.x = cloud->points[indices_[0]].x;
+        center.point.y = cloud->points[indices_[0]].y;
+        center.point.z = cloud->points[indices_[0]].z;
+        normal.header.frame_id = frame_id;
+        normal.header.stamp = ros::Time::now();
+        normal.vector.x = cloud_normals->points[indices_[0]].normal_x;
+        normal.vector.y = cloud_normals->points[indices_[0]].normal_y;
+        normal.vector.z = cloud_normals->points[indices_[0]].normal_z;
+        if (normal.vector.z > 0) {
+            normal.vector.x *= -1;
+            normal.vector.y *= -1;
+            normal.vector.z *= -1;
+        }
 
         float area = getArea(cloud);
 
-        centers_msg.centers.push_back(msg.center);
-        normals_msg.normals.push_back(msg.normal);
-        areas_msg.areas.push_back(area);
+	vector<Eigen::Vector3f> axes = getMomentOfInertia(cloud);
+        geometry_msgs::Vector3Stamped x_axis;
+        geometry_msgs::Vector3Stamped y_axis;
+        geometry_msgs::Vector3Stamped z_axis;
+        x_axis.header.frame_id = frame_id;
+        x_axis.header.stamp = ros::Time::now();
+        x_axis.vector.x = axes[0](0);
+        x_axis.vector.y = axes[0](1);
+        x_axis.vector.z = axes[0](2);
+        y_axis.header.frame_id = frame_id;
+        y_axis.header.stamp = ros::Time::now();
+        y_axis.vector.x = axes[1](0);
+        y_axis.vector.y = axes[1](1);
+        y_axis.vector.z = axes[1](2);
+        z_axis.header.frame_id = frame_id;
+        z_axis.header.stamp = ros::Time::now();
+        z_axis.vector.x = axes[2](0);
+        z_axis.vector.y = axes[2](1);
+        z_axis.vector.z = axes[2](2);
 
-        center_msg_list.push_back(centers_msg);
-        normal_msg_list.push_back(normals_msg);
-        area_msg_list.push_back(areas_msg);
+        //centers_msg.centers.push_back(msg.center);
+        //normals_msg.normals.push_back(msg.normal);
+        //areas_msg.areas.push_back(area);
+
+	moas_msg.centers.push_back(center);
+	moas_msg.normals.push_back(normal);
+	moas_msg.areas.push_back(area);
+	moas_msg.x_axes.push_back(x_axis);
+	moas_msg.y_axes.push_back(y_axis);
+	moas_msg.z_axes.push_back(z_axis);
+
+        //center_msg_list.push_back(centers_msg);
+        //normal_msg_list.push_back(normals_msg);
+        //area_msg_list.push_back(areas_msg);
+	
+	moas_msg_list.push_back(moas_msg);
     }
 }
 
@@ -423,6 +566,8 @@ void markerInitialization()
 {
     marker_axes_list = {};
     arrow_scale.x = 0.01, arrow_scale.y = 0.01, arrow_scale.z = 0.01;
+    x_axis_color.r = 1.0, x_axis_color.g = 0.0, x_axis_color.b = 0.0, x_axis_color.a = 1.0;
+    y_axis_color.r = 0.0, y_axis_color.g = 1.0, y_axis_color.b = 0.0, y_axis_color.a = 1.0;
     z_axis_color.r = 0.0, z_axis_color.g = 0.0, z_axis_color.b = 1.0, z_axis_color.a = 1.0;
     visualization_msgs::Marker del_msg = build_marker_msg(std_msgs::Header(), "", 0, 0, visualization_msgs::Marker::DELETEALL, geometry_msgs::Vector3(), std_msgs::ColorRGBA(), geometry_msgs::Point(), geometry_msgs::Vector3(), "");
     marker_axes_list.markers.push_back(del_msg);
@@ -487,6 +632,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     center_msg_list = {};
     normal_msg_list = {};
     area_msg_list = {};
+    moas_msg_list = {};
     markerInitialization();
 
     sceneRegionGrowing();
@@ -519,6 +665,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     res.centers_list = center_msg_list;
     res.normals_list = normal_msg_list;
     res.areas_list = area_msg_list;
+    res.moas_list = moas_msg_list;
     //for (int i = 0; i < center_msg_list.size(); i++)
     //{
     //    CenterNormalMsg msg; 
@@ -529,8 +676,23 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     //    res.centers.push_back(msg.center);
     //    res.normals.push_back(msg.normal);
     //}
+    for (int i = 0; i < moas_msg_list.size(); i++)
+    {
+	geometry_msgs::PointStamped center = moas_msg_list[i].centers[0];
+        geometry_msgs::Vector3Stamped x_axis = moas_msg_list[i].x_axes[0];
+        geometry_msgs::Vector3Stamped y_axis = moas_msg_list[i].y_axes[0];
+        geometry_msgs::Vector3Stamped z_axis = moas_msg_list[i].z_axes[0];
 
-    //vis_axes_marker.publish(marker_axes_list);
+	visualization_msgs::Marker x_axis_marker = build_marker_msg(center.header, "mask_region_growing_x_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, x_axis_color, center.point, x_axis.vector, "x_axis_" + to_string(i));
+	visualization_msgs::Marker y_axis_marker = build_marker_msg(center.header, "mask_region_growing_y_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, y_axis_color, center.point, y_axis.vector, "y_axis_" + to_string(i));
+	visualization_msgs::Marker z_axis_marker = build_marker_msg(center.header, "mask_region_growing_z_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, center.point, z_axis.vector, "z_axis_" + to_string(i));
+
+	marker_axes_list.markers.push_back(x_axis_marker);
+	marker_axes_list.markers.push_back(y_axis_marker);
+	marker_axes_list.markers.push_back(z_axis_marker);        
+    }
+
+    vis_axes_marker.publish(marker_axes_list);
    
     ros::WallTime end_process_time = ros::WallTime::now();
     double execution_process_time = (end_process_time - start_process_time).toNSec() * 1e-9;
