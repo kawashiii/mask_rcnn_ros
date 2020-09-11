@@ -81,6 +81,7 @@ vector<mask_rcnn_ros::Centers> center_msg_list;
 vector<mask_rcnn_ros::Normals> normal_msg_list;
 vector<mask_rcnn_ros::Areas> area_msg_list;
 vector<mask_rcnn_ros::MaskedObjectAttributes> moas_msg_list;
+vector<geometry_msgs::PointStamped> corner_msg_list;
 visualization_msgs::MarkerArray marker_axes_list;
 geometry_msgs::Vector3 arrow_scale;
 std_msgs::ColorRGBA x_axis_color;
@@ -118,6 +119,14 @@ visualization_msgs::Marker build_marker_msg(std_msgs::Header header, string ns, 
         marker.text = text;
 
         return marker;
+    }
+    if (type == visualization_msgs::Marker::SPHERE)
+    {
+	marker.pose.position.x = point.x;
+	marker.pose.position.y = point.y;
+	marker.pose.position.z = point.z;
+
+	return marker;
     }
     marker.points.resize(2);
     marker.points[0] = point;
@@ -349,9 +358,13 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT:
     //}
 }
 
-void maskedRegionGrowing(cv::Mat mask_index)
+void maskedRegionGrowing(cv::Mat mask)
 {
+    cv::Mat mask_index;
+    cv::findNonZero(mask, mask_index);
+
     PointCloudT::Ptr cloud (new PointCloudT);
+    vector<float> z_values;
     for (int i = 0; i < mask_index.total(); i++)
     {
         int u = mask_index.at<cv::Point>(i).x;
@@ -360,7 +373,34 @@ void maskedRegionGrowing(cv::Mat mask_index)
 	p.z = depth.at<float>(v, u) / 1000;
 	p.x = (u - cx) * p.z / fx;
 	p.y = (v - cy) * p.z / fy;
+	z_values.push_back(p.z);
 	cloud->points.push_back(p);
+    }
+
+    std::sort(z_values.begin(), z_values.end());
+
+    int vector_size = (int)(z_values.size() / 2);
+
+    vector<vector<cv::Point> > contours;
+    vector<cv::Vec4i> hierarchy;
+    cv::findContours(mask, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_SIMPLE);
+
+    cv::RotatedRect rect = cv::minAreaRect(contours[i]);
+    cv::Point2f vertices[4];
+    rect.points(vertices);
+    for (int i = 0; i < 4; i++)
+    {
+	float z = z_values[vector_size];
+	float x = (vertices[i].x - cx) * z / fx;
+	float y = (vertices[i].y - cy) * z / fy;
+
+        geometry_msgs::PointStamped corner;
+        corner.header.frame_id = frame_id;
+        corner.header.stamp = ros::Time::now();
+        corner.point.x = x;
+        corner.point.y = y;
+        corner.point.z = z;
+	corner_msg_list.push_back(corner);
     }
 
     //downsampling
@@ -517,8 +557,11 @@ void maskedRegionGrowing(cv::Mat mask_index)
     }
 }
 
-void computeCenter(cv::Mat mask_index)
+void computeCenter(cv::Mat mask)
 {
+    cv::Mat mask_index;
+    cv::findNonZero(mask, mask_index);
+
     PointCloudT::Ptr cloud (new PointCloudT);
     pcl::CentroidPoint<PointT> centroid;
     PointT c1;
@@ -660,14 +703,11 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
         //cv::Mat offset = (cv::Mat_<double>(2, 3) << 1.0, 0.0, 5.0, 0.0, 1.0, 0.0);
         //cv::warpAffine(mask, mask, offset, mask.size());
 
-	cv::Mat mask_index;
-	cv::findNonZero(mask, mask_index);
-
 	ROS_INFO("ID:%d", count);
 	if (is_rigid_object)
-            maskedRegionGrowing(mask_index);
+            maskedRegionGrowing(mask);
         else
-            computeCenter(mask_index);
+            computeCenter(mask);
 
 	count++;
     }
@@ -692,14 +732,17 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
         geometry_msgs::Vector3Stamped x_axis = moas_msg_list[i].x_axes[0];
         geometry_msgs::Vector3Stamped y_axis = moas_msg_list[i].y_axes[0];
         geometry_msgs::Vector3Stamped z_axis = moas_msg_list[i].z_axes[0];
+	geometry_msgs::PointStamped corner = corner_msg_list[i];
 
 	visualization_msgs::Marker x_axis_marker = build_marker_msg(center.header, "mask_region_growing_x_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, x_axis_color, center.point, x_axis.vector, "x_axis_" + to_string(i));
 	visualization_msgs::Marker y_axis_marker = build_marker_msg(center.header, "mask_region_growing_y_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, y_axis_color, center.point, y_axis.vector, "y_axis_" + to_string(i));
 	visualization_msgs::Marker z_axis_marker = build_marker_msg(center.header, "mask_region_growing_z_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, center.point, z_axis.vector, "z_axis_" + to_string(i));
+	visualization_msgs::Marker sphere_marker = build_marker_msg(corner.header, "mask_region_growing_corner", i, visualization_msgs::Marker::SPHERE, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, corner.point, z_axis.vector, "corner_" + to_string(i));
 
 	marker_axes_list.markers.push_back(x_axis_marker);
 	marker_axes_list.markers.push_back(y_axis_marker);
-	marker_axes_list.markers.push_back(z_axis_marker);        
+	marker_axes_list.markers.push_back(z_axis_marker);
+        marker_axes_list.markers.push_back(sphere_marker);	
     }
 
     vis_axes_marker.publish(marker_axes_list);
