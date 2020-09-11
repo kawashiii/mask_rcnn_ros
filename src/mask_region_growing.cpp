@@ -239,6 +239,11 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT:
         z_axis.vector.x = axes[2](0);
         z_axis.vector.y = axes[2](1);
         z_axis.vector.z = axes[2](2);
+        if (z_axis.vector.z > 0) {
+            z_axis.vector.x *= -1;
+            z_axis.vector.y *= -1;
+            z_axis.vector.z *= -1;
+        }
 
 	moas_msg.centers.push_back(center);
 	moas_msg.normals.push_back(normal);
@@ -487,6 +492,11 @@ void maskedRegionGrowing(cv::Mat mask_index)
         z_axis.vector.x = axes[2](0);
         z_axis.vector.y = axes[2](1);
         z_axis.vector.z = axes[2](2);
+        if (z_axis.vector.z > 0) {
+            z_axis.vector.x *= -1;
+            z_axis.vector.y *= -1;
+            z_axis.vector.z *= -1;
+        }
 
         //centers_msg.centers.push_back(msg.center);
         //normals_msg.normals.push_back(msg.normal);
