@@ -4,6 +4,8 @@ geometry_msgs/Vector3Stamped[] normals
 
 float32[] areas
 
+geometry_msgs/PolygonStamped[] corners
+
 geometry_msgs/Vector3Stamped[] x_axes
 
 geometry_msgs/Vector3Stamped[] y_axes

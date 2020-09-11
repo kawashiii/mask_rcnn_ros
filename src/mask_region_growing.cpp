@@ -14,6 +14,7 @@
 #include <sensor_msgs/CameraInfo.h>
 #include <geometry_msgs/PointStamped.h>
 #include <geometry_msgs/Vector3Stamped.h>
+#include <geometry_msgs/PolygonStamped.h>
 
 //PCL
 #include <pcl_ros/point_cloud.h>
@@ -96,6 +97,12 @@ struct CenterNormalMsg{
     float area;
 };
 
+struct MomentOfInertia{
+   vector<Eigen::Vector3f> vectors;
+   PointT min_point_OBB;
+   PointT max_point_OBB;      
+};
+
 bool compare_indices_size(const pcl::PointIndices& lp, const pcl::PointIndices& rp)
 {
     return lp.indices.size() > rp.indices.size();
@@ -125,6 +132,7 @@ visualization_msgs::Marker build_marker_msg(std_msgs::Header header, string ns, 
 	marker.pose.position.x = point.x;
 	marker.pose.position.y = point.y;
 	marker.pose.position.z = point.z;
+        marker.text = text;
 
 	return marker;
     }
@@ -150,7 +158,7 @@ float getArea(PointCloudT::Ptr cloud_in)
     return chull.getTotalArea();
 }
 
-vector<Eigen::Vector3f> getMomentOfInertia(PointCloudT::Ptr cloud_in)
+MomentOfInertia getMomentOfInertia(PointCloudT::Ptr cloud_in)
 {
     PointT min_point_AABB;
     PointT max_point_AABB;
@@ -167,9 +175,13 @@ vector<Eigen::Vector3f> getMomentOfInertia(PointCloudT::Ptr cloud_in)
     feature_extractor.getOBB (min_point_OBB, max_point_OBB, position_OBB, rotational_matrix_OBB);
     feature_extractor.getEigenVectors (major_vector, middle_vector, minor_vector);
 
+    MomentOfInertia moi;
     vector<Eigen::Vector3f> ret_vectors{major_vector, middle_vector, minor_vector};
+    moi.vectors = ret_vectors;
+    moi.min_point_OBB = min_point_OBB;
+    moi.max_point_OBB = max_point_OBB;
 
-    return ret_vectors;
+    return moi;
 
 }
 
@@ -229,7 +241,8 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT:
 
         float area = getArea(cloud_list[i]);
 
-	vector<Eigen::Vector3f> axes = getMomentOfInertia(cloud_list[i]);
+        MomentOfInertia moi = getMomentOfInertia(cloud_list[i]);
+	vector<Eigen::Vector3f> axes = moi.vectors;
         geometry_msgs::Vector3Stamped x_axis;
         geometry_msgs::Vector3Stamped y_axis;
         geometry_msgs::Vector3Stamped z_axis;
@@ -253,10 +266,32 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT:
             z_axis.vector.y *= -1;
             z_axis.vector.z *= -1;
         }
-
-	moas_msg.centers.push_back(center);
+        geometry_msgs::PolygonStamped corner;
+        corner.header.frame_id = frame_id;
+        corner.header.stamp = ros::Time::now();
+        vector<geometry_msgs::Point32> corner_points;
+        geometry_msgs::Point32 tmp;
+        tmp.x = center.point.x + x_axis.vector.x * moi.min_point_OBB.x + y_axis.vector.x * moi.min_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.min_point_OBB.x + y_axis.vector.y * moi.min_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.min_point_OBB.x + y_axis.vector.z * moi.min_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+        tmp.x = center.point.x + x_axis.vector.x * moi.max_point_OBB.x + y_axis.vector.x * moi.min_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.max_point_OBB.x + y_axis.vector.y * moi.min_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.max_point_OBB.x + y_axis.vector.z * moi.min_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+        tmp.x = center.point.x + x_axis.vector.x * moi.min_point_OBB.x + y_axis.vector.x * moi.max_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.min_point_OBB.x + y_axis.vector.y * moi.max_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.min_point_OBB.x + y_axis.vector.z * moi.max_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+        tmp.x = center.point.x + x_axis.vector.x * moi.max_point_OBB.x + y_axis.vector.x * moi.max_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.max_point_OBB.x + y_axis.vector.y * moi.max_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.max_point_OBB.x + y_axis.vector.z * moi.max_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+	
+        moas_msg.centers.push_back(center);
 	moas_msg.normals.push_back(normal);
 	moas_msg.areas.push_back(area);
+        moas_msg.corners.push_back(corner);
 	moas_msg.x_axes.push_back(x_axis);
 	moas_msg.y_axes.push_back(y_axis);
 	moas_msg.z_axes.push_back(z_axis);
@@ -307,6 +342,7 @@ void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT:
 	        best_moas_msg.centers.push_back(center);
 	        best_moas_msg.normals.push_back(normal);
 	        best_moas_msg.areas.push_back(moas_msg.areas[i]);
+	        best_moas_msg.corners.push_back(moas_msg.corners[i]);
 	        best_moas_msg.x_axes.push_back(moas_msg.x_axes[i]);
 	        best_moas_msg.y_axes.push_back(moas_msg.y_axes[i]);
 	        best_moas_msg.z_axes.push_back(moas_msg.z_axes[i]);
@@ -377,31 +413,31 @@ void maskedRegionGrowing(cv::Mat mask)
 	cloud->points.push_back(p);
     }
 
-    std::sort(z_values.begin(), z_values.end());
+    //std::sort(z_values.begin(), z_values.end());
 
-    int vector_size = (int)(z_values.size() / 2);
+    //int vector_size = (int)(z_values.size() / 2);
 
-    vector<vector<cv::Point> > contours;
-    vector<cv::Vec4i> hierarchy;
-    cv::findContours(mask, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_SIMPLE);
+    //vector<vector<cv::Point> > contours;
+    //vector<cv::Vec4i> hierarchy;
+    //cv::findContours(mask, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_SIMPLE);
 
-    cv::RotatedRect rect = cv::minAreaRect(contours[i]);
-    cv::Point2f vertices[4];
-    rect.points(vertices);
-    for (int i = 0; i < 4; i++)
-    {
-	float z = z_values[vector_size];
-	float x = (vertices[i].x - cx) * z / fx;
-	float y = (vertices[i].y - cy) * z / fy;
+    //cv::RotatedRect rect = cv::minAreaRect(contours[0]);
+    //cv::Point2f vertices[4];
+    //rect.points(vertices);
+    //for (int i = 0; i < 4; i++)
+    //{
+    //    float z = z_values[vector_size];
+    //    float x = (vertices[i].x - cx) * z / fx;
+    //    float y = (vertices[i].y - cy) * z / fy;
 
-        geometry_msgs::PointStamped corner;
-        corner.header.frame_id = frame_id;
-        corner.header.stamp = ros::Time::now();
-        corner.point.x = x;
-        corner.point.y = y;
-        corner.point.z = z;
-	corner_msg_list.push_back(corner);
-    }
+    //    geometry_msgs::PointStamped corner;
+    //    corner.header.frame_id = frame_id;
+    //    corner.header.stamp = ros::Time::now();
+    //    corner.point.x = x;
+    //    corner.point.y = y;
+    //    corner.point.z = z;
+    //    corner_msg_list.push_back(corner);
+    //}
 
     //downsampling
     pcl::VoxelGrid<PointT> voxelSampler;
@@ -513,7 +549,8 @@ void maskedRegionGrowing(cv::Mat mask)
 
         float area = getArea(cloud);
 
-	vector<Eigen::Vector3f> axes = getMomentOfInertia(cloud);
+        MomentOfInertia moi = getMomentOfInertia(cloud);
+	vector<Eigen::Vector3f> axes = moi.vectors;
         geometry_msgs::Vector3Stamped x_axis;
         geometry_msgs::Vector3Stamped y_axis;
         geometry_msgs::Vector3Stamped z_axis;
@@ -537,6 +574,28 @@ void maskedRegionGrowing(cv::Mat mask)
             z_axis.vector.y *= -1;
             z_axis.vector.z *= -1;
         }
+        geometry_msgs::PolygonStamped corner;
+        corner.header.frame_id = frame_id;
+        corner.header.stamp = ros::Time::now();
+        vector<geometry_msgs::Point32> corner_points;
+        geometry_msgs::Point32 tmp;
+        tmp.x = center.point.x + x_axis.vector.x * moi.min_point_OBB.x + y_axis.vector.x * moi.min_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.min_point_OBB.x + y_axis.vector.y * moi.min_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.min_point_OBB.x + y_axis.vector.z * moi.min_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+        tmp.x = center.point.x + x_axis.vector.x * moi.max_point_OBB.x + y_axis.vector.x * moi.min_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.max_point_OBB.x + y_axis.vector.y * moi.min_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.max_point_OBB.x + y_axis.vector.z * moi.min_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+        tmp.x = center.point.x + x_axis.vector.x * moi.min_point_OBB.x + y_axis.vector.x * moi.max_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.min_point_OBB.x + y_axis.vector.y * moi.max_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.min_point_OBB.x + y_axis.vector.z * moi.max_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+        tmp.x = center.point.x + x_axis.vector.x * moi.max_point_OBB.x + y_axis.vector.x * moi.max_point_OBB.y;
+        tmp.y = center.point.y + x_axis.vector.y * moi.max_point_OBB.x + y_axis.vector.y * moi.max_point_OBB.y;
+        tmp.z = center.point.z + x_axis.vector.z * moi.max_point_OBB.x + y_axis.vector.z * moi.max_point_OBB.y;
+        corner.polygon.points.push_back(tmp);
+
 
         //centers_msg.centers.push_back(msg.center);
         //normals_msg.normals.push_back(msg.normal);
@@ -545,6 +604,7 @@ void maskedRegionGrowing(cv::Mat mask)
 	moas_msg.centers.push_back(center);
 	moas_msg.normals.push_back(normal);
 	moas_msg.areas.push_back(area);
+        moas_msg.corners.push_back(corner);
 	moas_msg.x_axes.push_back(x_axis);
 	moas_msg.y_axes.push_back(y_axis);
 	moas_msg.z_axes.push_back(z_axis);
@@ -686,6 +746,7 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     normal_msg_list = {};
     area_msg_list = {};
     moas_msg_list = {};
+    corner_msg_list = {};
     markerInitialization();
 
     sceneRegionGrowing();
@@ -726,24 +787,44 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
     //    res.centers.push_back(msg.center);
     //    res.normals.push_back(msg.normal);
     //}
+    count = 0;
     for (int i = 0; i < moas_msg_list.size(); i++)
     {
 	geometry_msgs::PointStamped center = moas_msg_list[i].centers[0];
         geometry_msgs::Vector3Stamped x_axis = moas_msg_list[i].x_axes[0];
         geometry_msgs::Vector3Stamped y_axis = moas_msg_list[i].y_axes[0];
         geometry_msgs::Vector3Stamped z_axis = moas_msg_list[i].z_axes[0];
-	geometry_msgs::PointStamped corner = corner_msg_list[i];
+        geometry_msgs::PolygonStamped corner = moas_msg_list[i].corners[0];
 
 	visualization_msgs::Marker x_axis_marker = build_marker_msg(center.header, "mask_region_growing_x_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, x_axis_color, center.point, x_axis.vector, "x_axis_" + to_string(i));
 	visualization_msgs::Marker y_axis_marker = build_marker_msg(center.header, "mask_region_growing_y_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, y_axis_color, center.point, y_axis.vector, "y_axis_" + to_string(i));
 	visualization_msgs::Marker z_axis_marker = build_marker_msg(center.header, "mask_region_growing_z_axis", i, visualization_msgs::Marker::ARROW, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, center.point, z_axis.vector, "z_axis_" + to_string(i));
-	visualization_msgs::Marker sphere_marker = build_marker_msg(corner.header, "mask_region_growing_corner", i, visualization_msgs::Marker::SPHERE, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, corner.point, z_axis.vector, "corner_" + to_string(i));
+
+        for (int j = 0; j < corner.polygon.points.size(); j++)
+        {
+            geometry_msgs::PointStamped c;
+            c.header = corner.header;
+            c.point.x = corner.polygon.points[j].x;
+            c.point.y = corner.polygon.points[j].y;
+            c.point.z = corner.polygon.points[j].z;
+
+	    visualization_msgs::Marker sphere_marker = build_marker_msg(corner.header, "mask_region_growing_corner", count, visualization_msgs::Marker::SPHERE, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, c.point, z_axis.vector, "corner_" + to_string(count));
+            count++;
+            marker_axes_list.markers.push_back(sphere_marker);
+        }
 
 	marker_axes_list.markers.push_back(x_axis_marker);
 	marker_axes_list.markers.push_back(y_axis_marker);
 	marker_axes_list.markers.push_back(z_axis_marker);
-        marker_axes_list.markers.push_back(sphere_marker);	
     }
+
+    //for (int i = 0; i < corner_msg_list.size(); i++)
+    //{
+    //    geometry_msgs::Vector3Stamped tmp = geometry_msgs::Vector3Stamped();;
+    //    geometry_msgs::PointStamped corner = corner_msg_list[i];
+    //    visualization_msgs::Marker sphere_marker = build_marker_msg(corner.header, "mask_region_growing_corner", i, visualization_msgs::Marker::SPHERE, visualization_msgs::Marker::ADD, arrow_scale, z_axis_color, corner.point, tmp.vector, "corner_" + to_string(i));
+    //    marker_axes_list.markers.push_back(sphere_marker);        
+    //}
 
     vis_axes_marker.publish(marker_axes_list);
    
@@ -788,7 +869,7 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     //downsampling
     pcl::VoxelGrid<PointT> voxelSampler;
     voxelSampler.setInputCloud(scene);
-    voxelSampler.setLeafSize(0.003, 0.003, 0.003);
+    voxelSampler.setLeafSize(0.002, 0.002, 0.002);
     voxelSampler.filter(*scene);
 
     pcl::StatisticalOutlierRemoval<PointT> sor;
