@@ -413,31 +413,15 @@ void maskedRegionGrowing(cv::Mat mask)
 	cloud->points.push_back(p);
     }
 
+    //compute rotated corner of mask
     //std::sort(z_values.begin(), z_values.end());
-
     //int vector_size = (int)(z_values.size() / 2);
-
     //vector<vector<cv::Point> > contours;
     //vector<cv::Vec4i> hierarchy;
     //cv::findContours(mask, contours, hierarchy, cv::RETR_CCOMP, cv::CHAIN_APPROX_SIMPLE);
-
     //cv::RotatedRect rect = cv::minAreaRect(contours[0]);
     //cv::Point2f vertices[4];
     //rect.points(vertices);
-    //for (int i = 0; i < 4; i++)
-    //{
-    //    float z = z_values[vector_size];
-    //    float x = (vertices[i].x - cx) * z / fx;
-    //    float y = (vertices[i].y - cy) * z / fy;
-
-    //    geometry_msgs::PointStamped corner;
-    //    corner.header.frame_id = frame_id;
-    //    corner.header.stamp = ros::Time::now();
-    //    corner.point.x = x;
-    //    corner.point.y = y;
-    //    corner.point.z = z;
-    //    corner_msg_list.push_back(corner);
-    //}
 
     //downsampling
     pcl::VoxelGrid<PointT> voxelSampler;
@@ -461,6 +445,7 @@ void maskedRegionGrowing(cv::Mat mask)
     normal_estimator.setSearchMethod (tree);
     normal_estimator.setInputCloud (cloud);
     normal_estimator.setKSearch (30);
+    //normal_estimator.setRadiusSearch(0.02);
     normal_estimator.compute (*cloud_normals);
     reg.setMinClusterSize (100);
     reg.setMaxClusterSize (7000);
@@ -596,6 +581,21 @@ void maskedRegionGrowing(cv::Mat mask)
         tmp.z = center.point.z + x_axis.vector.z * moi.max_point_OBB.x + y_axis.vector.z * moi.max_point_OBB.y;
         corner.polygon.points.push_back(tmp);
 
+        //geometry_msgs::PolygonStamped corner;
+        //corner.header.frame_id = frame_id;
+        //corner.header.stamp = ros::Time::now();
+        //for (int i = 0; i < 4; i++)
+        //{
+        //    float z = z_values[vector_size];
+        //    float x = (vertices[i].x - cx) * z / fx;
+        //    float y = (vertices[i].y - cy) * z / fy;
+
+        //    geometry_msgs::Point32 p32;
+        //    p32.x = x;
+        //    p32.y = y;
+        //    p32.z = z;
+        //    corner.polygon.points.push_back(p32);
+        //}
 
         //centers_msg.centers.push_back(msg.center);
         //normals_msg.normals.push_back(msg.normal);
@@ -694,6 +694,7 @@ void sceneRegionGrowing()
     normal_estimator.setSearchMethod (tree);
     normal_estimator.setInputCloud (scene);
     normal_estimator.setKSearch (30);
+    //normal_estimator.setRadiusSearch(0.02);
     normal_estimator.compute (*scene_normals);
     scene_reg.setMinClusterSize (50);
     scene_reg.setMaxClusterSize (7000);

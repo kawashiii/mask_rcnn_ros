@@ -35,7 +35,7 @@ from keras.backend import tensorflow_backend as backend
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL_DIR = os.path.join(ROOT_DIR, "models/")
-CLASS_NAME = "caloriemate"
+CLASS_NAME = "choice"
 MODEL = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
 
 CAMERA_INFO_TOPIC = "/pylon_camera_node/camera_info"
