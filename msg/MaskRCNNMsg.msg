@@ -4,7 +4,7 @@ uint32 count
 uint32[] ids
 float32[] areas
 
-# Surface pose and corner points
+# Surface axes and corner points
 geometry_msgs/Vector3Stamped[] x_axes
 geometry_msgs/Vector3Stamped[] y_axes
 geometry_msgs/Vector3Stamped[] z_axes
