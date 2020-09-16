@@ -3,7 +3,12 @@ std_msgs/Header header
 uint32 count
 uint32[] ids
 float32[] areas
-geometry_msgs/Vector3Stamped[] axes
+
+# Surface pose and corner points
+geometry_msgs/Vector3Stamped[] x_axes
+geometry_msgs/Vector3Stamped[] y_axes
+geometry_msgs/Vector3Stamped[] z_axes
+geometry_msgs/PolygonStamped[] polygons
 
 # Bounding boxes in pixels
 sensor_msgs/RegionOfInterest[] boxes

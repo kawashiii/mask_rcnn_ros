@@ -1,9 +1,9 @@
 bool is_rigid_object
 sensor_msgs/Image[] masks
 ---
-Centers[] centers_list
-Normals[] normals_list
-Areas[] areas_list
+#Centers[] centers_list
+#Normals[] normals_list
+#Areas[] areas_list
 MaskedObjectAttributes[] moas_list
 #geometry_msgs/PointStamped[] centers
 #geometry_msgs/Vector3Stamped[] normals

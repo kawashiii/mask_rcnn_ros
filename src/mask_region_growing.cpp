@@ -39,9 +39,9 @@
 
 //Msg or Srv
 #include "mask_rcnn_ros/GetMaskedSurface.h"
-#include "mask_rcnn_ros/Centers.h"
-#include "mask_rcnn_ros/Normals.h"
-#include "mask_rcnn_ros/Areas.h"
+//#include "mask_rcnn_ros/Centers.h"
+//#include "mask_rcnn_ros/Normals.h"
+//#include "mask_rcnn_ros/Areas.h"
 #include "mask_rcnn_ros/MaskedObjectAttributes.h"
 
 using namespace std;
@@ -78,11 +78,11 @@ ros::Publisher masked_depth_map_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
 std::string depth_topic = "/phoxi_camera/aligned_depth_map";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
-vector<mask_rcnn_ros::Centers> center_msg_list;
-vector<mask_rcnn_ros::Normals> normal_msg_list;
-vector<mask_rcnn_ros::Areas> area_msg_list;
+//vector<mask_rcnn_ros::Centers> center_msg_list;
+//vector<mask_rcnn_ros::Normals> normal_msg_list;
+//vector<mask_rcnn_ros::Areas> area_msg_list;
+//vector<geometry_msgs::PointStamped> corner_msg_list;
 vector<mask_rcnn_ros::MaskedObjectAttributes> moas_msg_list;
-vector<geometry_msgs::PointStamped> corner_msg_list;
 visualization_msgs::MarkerArray marker_axes_list;
 geometry_msgs::Vector3 arrow_scale;
 std_msgs::ColorRGBA x_axis_color;
@@ -91,11 +91,11 @@ std_msgs::ColorRGBA z_axis_color;
 
 float is_service_called = false;
 
-struct CenterNormalMsg{
-    geometry_msgs::PointStamped center;
-    geometry_msgs::Vector3Stamped normal;
-    float area;
-};
+//struct CenterNormalMsg{
+//    geometry_msgs::PointStamped center;
+//    geometry_msgs::Vector3Stamped normal;
+//    float area;
+//};
 
 struct MomentOfInertia{
    vector<Eigen::Vector3f> vectors;
@@ -187,9 +187,9 @@ MomentOfInertia getMomentOfInertia(PointCloudT::Ptr cloud_in)
 
 void sceneRegionGrowingFromPoint(vector<PointT> center_list, vector<PointCloudT::Ptr> cloud_list)
 {
-    mask_rcnn_ros::Centers centers_msg;
-    mask_rcnn_ros::Normals normals_msg;
-    mask_rcnn_ros::Areas areas_msg;
+    //mask_rcnn_ros::Centers centers_msg;
+    //mask_rcnn_ros::Normals normals_msg;
+    //mask_rcnn_ros::Areas areas_msg;
     mask_rcnn_ros::MaskedObjectAttributes moas_msg;
     //for (PointT center : center_list)
     for (int i = 0; i < center_list.size(); i++)
@@ -459,6 +459,8 @@ void maskedRegionGrowing(cv::Mat mask)
 
     if (indices.size() == 0) {
 	ROS_WARN("Couldn't find any surface");
+        mask_rcnn_ros::MaskedObjectAttributes moas_tmp_msg;
+	moas_msg_list.push_back(moas_tmp_msg);
         return;
     }
 
@@ -482,9 +484,9 @@ void maskedRegionGrowing(cv::Mat mask)
         cloud_list.push_back(tmp);
     }
 
-    mask_rcnn_ros::Centers centers_msg;
-    mask_rcnn_ros::Normals normals_msg;
-    mask_rcnn_ros::Areas areas_msg;
+    //mask_rcnn_ros::Centers centers_msg;
+    //mask_rcnn_ros::Normals normals_msg;
+    //mask_rcnn_ros::Areas areas_msg;
     mask_rcnn_ros::MaskedObjectAttributes moas_msg;
     if (center_list.size() > 1) {
         sceneRegionGrowingFromPoint(center_list, cloud_list);
@@ -652,27 +654,45 @@ void computeCenter(cv::Mat mask)
     std::sort(z_list.begin(), z_list.end());
     size_t n = z_list.size() / 2;
 
-    CenterNormalMsg msg;
-    msg.center.header.frame_id = frame_id;
-    msg.center.header.stamp = ros::Time::now();
-    msg.center.point.x = cloud->points[indices_[0]].x;
-    msg.center.point.y = cloud->points[indices_[0]].y;
-    //msg.center.point.z = cloud->points[indices_[0]].z;
-    msg.center.point.z = z_list[n];
-    msg.normal.header.frame_id = "world";
-    msg.normal.header.stamp = ros::Time::now();
-    msg.normal.vector.x = 0.0;
-    msg.normal.vector.y = 0.0;
-    msg.normal.vector.z = 1.0;
+    mask_rcnn_ros::MaskedObjectAttributes moas_msg;
+    geometry_msgs::PointStamped center;
+    geometry_msgs::Vector3Stamped normal;
+    center.header.frame_id = frame_id;
+    center.header.stamp = ros::Time::now();
+    center.point.x = cloud->points[indices_[0]].x;
+    center.point.y = cloud->points[indices_[0]].y;
+    center.point.z = z_list[n];
+    normal.header.frame_id = "world";
+    normal.header.stamp = ros::Time::now();
+    normal.vector.x = 0.0;
+    normal.vector.y = 0.0;
+    normal.vector.z = 1.0;
 
-    mask_rcnn_ros::Centers centers_msg;
-    mask_rcnn_ros::Normals normals_msg;
-    
-    centers_msg.centers.push_back(msg.center);
-    normals_msg.normals.push_back(msg.normal);
+    moas_msg.centers.push_back(center);
+    moas_msg.normals.push_back(normal);
 
-    center_msg_list.push_back(centers_msg);
-    normal_msg_list.push_back(normals_msg);
+    moas_msg_list.push_back(moas_msg);
+
+    //CenterNormalMsg msg;
+    //msg.center.header.frame_id = frame_id;
+    //msg.center.header.stamp = ros::Time::now();
+    //msg.center.point.x = cloud->points[indices_[0]].x;
+    //msg.center.point.y = cloud->points[indices_[0]].y;
+    //msg.center.point.z = z_list[n];
+    //msg.normal.header.frame_id = "world";
+    //msg.normal.header.stamp = ros::Time::now();
+    //msg.normal.vector.x = 0.0;
+    //msg.normal.vector.y = 0.0;
+    //msg.normal.vector.z = 1.0;
+
+    //mask_rcnn_ros::Centers centers_msg;
+    //mask_rcnn_ros::Normals normals_msg;
+    //
+    //centers_msg.centers.push_back(msg.center);
+    //normals_msg.normals.push_back(msg.normal);
+
+    //center_msg_list.push_back(centers_msg);
+    //normal_msg_list.push_back(normals_msg);
 }
 
 void markerInitialization()
@@ -743,11 +763,11 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
 
     scene_surface_list = {};
     masked_surface_list = {};
-    center_msg_list = {};
-    normal_msg_list = {};
-    area_msg_list = {};
+    //center_msg_list = {};
+    //normal_msg_list = {};
+    //area_msg_list = {};
+    //corner_msg_list = {};
     moas_msg_list = {};
-    corner_msg_list = {};
     markerInitialization();
 
     sceneRegionGrowing();
@@ -774,9 +794,9 @@ bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mas
 	count++;
     }
 
-    res.centers_list = center_msg_list;
-    res.normals_list = normal_msg_list;
-    res.areas_list = area_msg_list;
+    //res.centers_list = center_msg_list;
+    //res.normals_list = normal_msg_list;
+    //res.areas_list = area_msg_list;
     res.moas_list = moas_msg_list;
     //for (int i = 0; i < center_msg_list.size(); i++)
     //{

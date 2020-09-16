@@ -186,9 +186,9 @@ class MaskRCNNNode(object):
         result_msg.count = 0
 
         self.vis_processed_result = np.copy(self.image)
-        axes_msg = MarkerArray()
+        axes_marker_msg = MarkerArray()
         delete_marker = self.delete_all_markers()
-        axes_msg.markers.append(delete_marker)
+        axes_marker_msg.markers.append(delete_marker)
 
         mask_msgs=[]
         is_rigid_object = True
@@ -228,9 +228,9 @@ class MaskRCNNNode(object):
 
         if len(result_msg.class_names) == 0:
             self.result_pub.publish(result_msg)
-            self.marker_pub.publish(axes_msg)
+            self.marker_pub.publish(axes_marker_msg)
 
-            rospy.loginfo("Published msg completely")
+            rospy.logwarn("No objects could be detected.")
             return result_msg
 
         try:
@@ -239,68 +239,86 @@ class MaskRCNNNode(object):
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
 
-        sort_item = []
-        check_center_list = []
-        for i, (centers_msg, normals_msg, areas_msg) in enumerate(zip(res.centers_list, res.normals_list, res.areas_list)):
-            for j, (center, normal, area) in enumerate(zip(centers_msg.centers, normals_msg.normals, areas_msg.areas)):
-                if (center.point.z == 0.0) : continue
-                if center.point in check_center_list : continue
-                check_center_list.append(center.point)
-                sort_item.append([i, center, normal, result_msg.boxes[i], area])
 
-        highest_item = sorted(sort_item, key=lambda x:x[1].point.z)
-        highest_good_normal_list = []
-        most_same_height_list = []
-        height = -1
-        for item in highest_item:
-            if len(most_same_height_list) == 0:
-                height = item[1].point.z
-                most_same_height_list.append(item)
-                continue
+        for i in range(result_msg.count):
+            masked_object_attrs = res.moas_list[i]
+            result_msg.x_axes.append(masked_object_attrs.x_axes[0])
+            result_msg.y_axes.append(masked_object_attrs.y_axes[0])
+            result_msg.z_axes.append(masked_object_attrs.z_axes[0])
+            result_msg.polygons.append(masked_object_attrs.corners[0])
+            result_msg.areas.append(masked_object_attrs.areas[0])
+            result_msg.centers.append(masked_object_attrs.centers[0])
+            result_msg.normals.append(masked_object_attrs.normals[0])
 
-            if item[1].point.z - height < 0.02:
-                most_same_height_list.append(item)
-            else:
-                bad_normal_list = []
-                for h in most_same_height_list:
-                    if h[2].vector.z < -0.9:
-                        highest_good_normal_list.append(h)
-                    else:
-                        bad_normal_list.append(h)
-                if len(bad_normal_list) != 0: 
-                    sorted_bad_normal_list = sorted(bad_normal_list, key=lambda x:x[2].vector.z)
-                    highest_good_normal_list += sorted_bad_normal_list
-                #good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
-                #highest_good_normal_list += good_normal_list
-                most_same_height_list = []
-                most_same_height_list.append(item)
-                height = item[1].point.z
+            center_msg = masked_object_attrs.centers[0]
+            normal_msg = masked_object_attrs.normals[0]
+          
+            normal_marker = self.build_marker_msg(center_msg.header.frame_id, Marker.ARROW, i, center_msg.point, normal_msg.vector, 0.0, 0.0, 1.0, "normal")
+            text_marker = self.build_marker_msg(center_msg.header.frame_id, Marker.TEXT_VIEW_FACING, i, center_msg.point, normal_msg.vector, 1.0, 1.0, 1.0, "id_text")
+            axes_marker_msg.markers.append(normal_marker)
+            axes_marker_msg.markers.append(text_marker)
 
-        if len(most_same_height_list) != 0:
-            good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
-            highest_good_normal_list += good_normal_list
+        #sort_item = []
+        #check_center_list = []
+        #for i, (centers_msg, normals_msg, areas_msg) in enumerate(zip(res.centers_list, res.normals_list, res.areas_list)):
+        #    for j, (center, normal, area) in enumerate(zip(centers_msg.centers, normals_msg.normals, areas_msg.areas)):
+        #        if (center.point.z == 0.0) : continue
+        #        if center.point in check_center_list : continue
+        #        check_center_list.append(center.point)
+        #        sort_item.append([i, center, normal, result_msg.boxes[i], area])
+
+        #highest_item = sorted(sort_item, key=lambda x:x[1].point.z)
+        #highest_good_normal_list = []
+        #most_same_height_list = []
+        #height = -1
+        #for item in highest_item:
+        #    if len(most_same_height_list) == 0:
+        #        height = item[1].point.z
+        #        most_same_height_list.append(item)
+        #        continue
+
+        #    if item[1].point.z - height < 0.02:
+        #        most_same_height_list.append(item)
+        #    else:
+        #        bad_normal_list = []
+        #        for h in most_same_height_list:
+        #            if h[2].vector.z < -0.9:
+        #                highest_good_normal_list.append(h)
+        #            else:
+        #                bad_normal_list.append(h)
+        #        if len(bad_normal_list) != 0: 
+        #            sorted_bad_normal_list = sorted(bad_normal_list, key=lambda x:x[2].vector.z)
+        #            highest_good_normal_list += sorted_bad_normal_list
+        #        #good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
+        #        #highest_good_normal_list += good_normal_list
+        #        most_same_height_list = []
+        #        most_same_height_list.append(item)
+        #        height = item[1].point.z
+
+        #if len(most_same_height_list) != 0:
+        #    good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
+        #    highest_good_normal_list += good_normal_list
             
-        result_msg.count = 0
-        result_msg.ids = []
-        result_msg.boxes = []
-        for i, item in enumerate(highest_good_normal_list):
-        #for i, item in enumerate(highest_item):
-            result_msg.ids.append(i)
-            result_msg.centers.append(item[1])
-            result_msg.normals.append(item[2])
-            result_msg.axes.append(item[2])
-            result_msg.boxes.append(item[3])
-            result_msg.areas.append(item[4])
-            result_msg.count += 1
-                
-            normal_marker = self.build_marker_msg(item[1].header.frame_id, Marker.ARROW, i, item[1].point, item[2].vector, 0.0, 0.0, 1.0, "normal")
-            text_marker = self.build_marker_msg(item[1].header.frame_id, Marker.TEXT_VIEW_FACING, i, item[1].point, item[2].vector, 1.0, 1.0, 1.0, "id_text")
-            axes_msg.markers.append(normal_marker)
-            axes_msg.markers.append(text_marker)
+        #result_msg.count = 0
+        #result_msg.ids = []
+        #result_msg.boxes = []
+        #for i, item in enumerate(highest_good_normal_list):
+        #    result_msg.ids.append(i)
+        #    result_msg.centers.append(item[1])
+        #    result_msg.normals.append(item[2])
+        #    result_msg.axes.append(item[2])
+        #    result_msg.boxes.append(item[3])
+        #    result_msg.areas.append(item[4])
+        #    result_msg.count += 1
+        #        
+        #    normal_marker = self.build_marker_msg(item[1].header.frame_id, Marker.ARROW, i, item[1].point, item[2].vector, 0.0, 0.0, 1.0, "normal")
+        #    text_marker = self.build_marker_msg(item[1].header.frame_id, Marker.TEXT_VIEW_FACING, i, item[1].point, item[2].vector, 1.0, 1.0, 1.0, "id_text")
+        #    axes_marker_msg.markers.append(normal_marker)
+        #    axes_marker_msg.markers.append(text_marker)
 
         
         self.result_pub.publish(result_msg)
-        self.marker_pub.publish(axes_msg)
+        self.marker_pub.publish(axes_marker_msg)
 
         rospy.loginfo("Published msg completely")
 
