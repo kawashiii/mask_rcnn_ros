@@ -245,6 +245,7 @@ class MaskRCNNNode(object):
             result_msg.x_axes.append(masked_object_attrs.x_axes[0])
             result_msg.y_axes.append(masked_object_attrs.y_axes[0])
             result_msg.z_axes.append(masked_object_attrs.z_axes[0])
+            result_msg.axes.append(masked_object_attrs.x_axes[0])
             result_msg.polygons.append(masked_object_attrs.corners[0])
             result_msg.areas.append(masked_object_attrs.areas[0])
             result_msg.centers.append(masked_object_attrs.centers[0])
