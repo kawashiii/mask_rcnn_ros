@@ -10,7 +10,7 @@ geometry_msgs/Vector3Stamped[] y_axes
 geometry_msgs/Vector3Stamped[] z_axes
 geometry_msgs/PolygonStamped[] polygons
 
-# Save Value as x_axes
+# Same Value as x_axes
 geometry_msgs/Vector3Stamped[] axes
 
 # Bounding boxes in pixels
