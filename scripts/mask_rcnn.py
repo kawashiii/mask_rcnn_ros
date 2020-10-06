@@ -9,6 +9,7 @@ import numpy as np
 
 import rospy
 import roslib.packages
+from std_msgs.msg import String
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
 from sensor_msgs.msg import CameraInfo
@@ -88,6 +89,7 @@ class MaskRCNNNode(object):
         self.vis_original_pub = rospy.Publisher(rospy.get_name() + '/original_result', Image, queue_size=1, latch=True)
         self.vis_processed_pub = rospy.Publisher(rospy.get_name() + '/processed_result', Image, queue_size=1, latch=True)
         self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1, latch=True)
+        self.input_image_pub = rospy.Publisher(rospy.get_name() + "/input_image", Image, queue_size=1, latch=True)
 
         # Define service
         get_detection_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.callback_get_detection)
@@ -109,6 +111,11 @@ class MaskRCNNNode(object):
                 cv2.convertScaleAbs(self.vis_processed_result, cv_result)
                 msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
                 self.vis_processed_pub.publish(msg)
+
+                cv_result = np.zeros(shape=self.image.shape, dtype=np.uint8)
+                cv2.convertScaleAbs(self.image, cv_result)
+                msg = self.cv_bridge.cv2_to_imgmsg(cv_result, 'bgr8')
+                self.input_image_pub.publish(msg)
                 self.is_service_called = False
 
             r.sleep()
