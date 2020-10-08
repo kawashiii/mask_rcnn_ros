@@ -66,6 +66,7 @@ typedef pcl::PointXYZRGB PointColorT;
 typedef pcl::PointCloud<PointT> PointCloudT;
 typedef pcl::PointCloud<PointColorT> PointCloudColorT;
 PointCloudT::Ptr scene(new PointCloudT);
+PointCloudT::Ptr input_scene(new PointCloudT);
 pcl::RegionGrowing<PointT, pcl::Normal> scene_reg;
 pcl::PointCloud <pcl::Normal>::Ptr scene_normals (new pcl::PointCloud <pcl::Normal>);
 vector<PointCloudColorT::Ptr> scene_surface_list;
@@ -75,8 +76,10 @@ ros::Publisher vis_axes_marker;
 ros::Publisher masked_surface_pointcloud_pub;
 ros::Publisher scene_surface_pointcloud_pub;
 ros::Publisher masked_depth_map_pub;
+ros::Publisher input_pointcloud_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
 std::string depth_topic = "/phoxi_camera/aligned_depth_map";
+std::string debug_depth_topic = "/debug/depth_rect";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
 //vector<mask_rcnn_ros::Centers> center_msg_list;
 //vector<mask_rcnn_ros::Normals> normal_msg_list;
@@ -90,6 +93,7 @@ std_msgs::ColorRGBA y_axis_color;
 std_msgs::ColorRGBA z_axis_color;
 
 float is_service_called = false;
+int debug_mode = 0;
 
 //struct CenterNormalMsg{
 //    geometry_msgs::PointStamped center;
@@ -863,13 +867,16 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     ROS_INFO("Subscribed Depth Image");
     cv_bridge::CvImagePtr cv_ptr;
     cv_ptr = cv_bridge::toCvCopy(depth_msg, "32FC1");
-    //depth = cv_ptr->image.clone();
-    cv::Mat tmp = cv_ptr->image.clone();
 
-    cv::Mat mapx, mapy;
-    cv::Size imageSize(tmp.cols, tmp.rows);
-    cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
-    cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
+    if (debug_mode) {
+        depth = cv_ptr->image.clone();
+    } else {
+        cv::Mat tmp = cv_ptr->image.clone();
+        cv::Mat mapx, mapy;
+        cv::Size imageSize(tmp.cols, tmp.rows);
+        cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
+        cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
+    }
 
     int width = depth.cols;
     int height = depth.rows;
@@ -886,6 +893,8 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
             scene->at(u, v) = p;
         }
     }
+
+    pcl::copyPointCloud(*scene, *input_scene);
 
     //downsampling
     pcl::VoxelGrid<PointT> voxelSampler;
@@ -929,6 +938,15 @@ int main(int argc, char *argv[])
     ros::init (argc, argv, "mask_region_growing");
     ros::NodeHandle nh;
 
+    if (nh.hasParam("/mask_rcnn/debug_mode"))
+    {
+        nh.getParam("/mask_rcnn/debug_mode", debug_mode);
+        if (debug_mode) {
+            ROS_WARN("'mask_region_growing node' is Debug Mode");
+            depth_topic = debug_depth_topic;
+        }
+    }
+
     ROS_INFO("Waiting camera info from %s", camera_info_topic.c_str());
     camera_info = ros::topic::waitForMessage<sensor_msgs::CameraInfo>(camera_info_topic);
     ROS_INFO("Received Camera Info");
@@ -942,6 +960,8 @@ int main(int argc, char *argv[])
 
     scene_surface_pointcloud_pub = nh.advertise<sensor_msgs::PointCloud2>(ros::this_node::getName() + "/scene_surface_pointcloud", 0, true);
     masked_surface_pointcloud_pub = nh.advertise<sensor_msgs::PointCloud2>(ros::this_node::getName() + "/masked_surface_pointcloud", 0, true);
+    masked_surface_pointcloud_pub = nh.advertise<sensor_msgs::PointCloud2>(ros::this_node::getName() + "/masked_surface_pointcloud", 0, true);
+    input_pointcloud_pub = nh.advertise<sensor_msgs::PointCloud2>(ros::this_node::getName() + "/input_pointcloud", 0, true);
     masked_depth_map_pub = nh.advertise<sensor_msgs::Image>(ros::this_node::getName() + "/masked_depth_map", 0, true);
 
     ros::Rate loop_rate(10);
@@ -968,6 +988,12 @@ int main(int argc, char *argv[])
             masked_surface_msg.header.frame_id = frame_id;
             masked_surface_msg.header.stamp = ros::Time::now();
             masked_surface_pointcloud_pub.publish(masked_surface_msg);
+            // publish input pointcloud
+            sensor_msgs::PointCloud2 input_pointcloud_msg;
+            pcl::toROSMsg(*input_scene, input_pointcloud_msg);
+            input_pointcloud_msg.header.frame_id = frame_id;
+            input_pointcloud_msg.header.stamp = ros::Time::now();
+            input_pointcloud_pub.publish(input_pointcloud_msg);
             // publish aligned_depth_map drawed some information
             publishDrawedDepthMap();
 

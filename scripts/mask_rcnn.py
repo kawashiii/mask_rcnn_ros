@@ -44,6 +44,8 @@ IMAGE_TOPIC = "/pylon_camera_node/image_rect"
 DEPTH_TOPIC = "/phoxi_camera/aligned_depth_map"
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
+DEBUG_IMAGE_TOPIC = "/debug/image_rect"
+
 # if the depth of (x, y) is 0, it is approximate depth value around specific pixel
 DEPTH_APPROXIMATE_RANGE = 10
 
@@ -52,6 +54,8 @@ class InferenceConfig(lab.LabConfig):
     # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
     GPU_COUNT = 1
     IMAGES_PER_GPU = 1
+    DETECTION_MIN_CONFIDENCE = 0.5
+    DETECTION_NMS_THRESHOLD = 0.5
 
 class MaskRCNNNode(object):
     def __init__(self):
@@ -81,7 +85,12 @@ class MaskRCNNNode(object):
         height = camera_info.height
         size = height, width, 3
         self.dummy_image = np.zeros(size, dtype=np.uint8)
-        rospy.loginfo("Acquired camera info")       
+        rospy.loginfo("Acquired camera info")
+
+        if rospy.has_param("/mask_rcnn/debug_mode") and rospy.get_param("/mask_rcnn/debug_mode"):
+            rospy.logwarn("'mask_rcnn' node is Debug Mode")
+            global IMAGE_TOPIC
+            IMAGE_TOPIC = DEBUG_IMAGE_TOPIC       
     
     def run(self):
         # Define publisher
