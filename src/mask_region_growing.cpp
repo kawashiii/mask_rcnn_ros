@@ -462,9 +462,25 @@ void maskedRegionGrowing(cv::Mat mask)
     reg.extract(indices);
 
     if (indices.size() == 0) {
-	ROS_WARN("Couldn't find any surface");
+        ROS_WARN("Couldn't find any surface");
         mask_rcnn_ros::MaskedObjectAttributes moas_tmp_msg;
-	moas_msg_list.push_back(moas_tmp_msg);
+        geometry_msgs::PointStamped center_tmp;
+        geometry_msgs::Vector3Stamped normal_tmp;
+        geometry_msgs::Vector3Stamped x_axis_tmp;
+        geometry_msgs::Vector3Stamped y_axis_tmp;
+        geometry_msgs::Vector3Stamped z_axis_tmp;
+        geometry_msgs::PolygonStamped corner_tmp;
+        float area_tmp = 0;
+
+	moas_tmp_msg.centers.push_back(center_tmp);
+	moas_tmp_msg.normals.push_back(normal_tmp);
+	moas_tmp_msg.areas.push_back(area_tmp);
+        moas_tmp_msg.corners.push_back(corner_tmp);
+	moas_tmp_msg.x_axes.push_back(x_axis_tmp);
+	moas_tmp_msg.y_axes.push_back(y_axis_tmp);
+	moas_tmp_msg.z_axes.push_back(z_axis_tmp);
+
+        moas_msg_list.push_back(moas_tmp_msg);
         return;
     }
 

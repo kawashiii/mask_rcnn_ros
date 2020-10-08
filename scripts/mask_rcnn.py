@@ -172,6 +172,12 @@ class MaskRCNNNode(object):
 
         # Convert Image
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+        #height,width = np_image.shape[:2]
+        #center = (int(width/2), int(height/2))
+        #angle = 30.0
+        #scale = 1.0
+        #trans = cv2.getRotationMatrix2D(center, angle , scale)
+        #np_image = cv2.warpAffine(np_image, trans, (width,height))
         self.image = np.copy(np_image)
         
         # Run Detection
