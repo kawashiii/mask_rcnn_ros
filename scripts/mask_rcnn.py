@@ -10,6 +10,7 @@ import numpy as np
 import rospy
 import roslib.packages
 from std_msgs.msg import String
+from std_msgs.msg import Int32
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import RegionOfInterest
 from sensor_msgs.msg import CameraInfo
@@ -41,6 +42,7 @@ MODEL = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
 
 CAMERA_INFO_TOPIC = "/pylon_camera_node/camera_info"
 IMAGE_TOPIC = "/pylon_camera_node/image_rect"
+IMAGE_TOPIC2 = "/phoxi_camera/external_camera_texture"
 DEPTH_TOPIC = "/phoxi_camera/aligned_depth_map"
 FRAME_ID = "basler_ace_rgb_sensor_calibrated"
 
@@ -93,14 +95,18 @@ class MaskRCNNNode(object):
             IMAGE_TOPIC = DEBUG_IMAGE_TOPIC       
     
     def run(self):
-        # Define publisher
+        # Define Publisher
         self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1, latch=True)
         self.vis_original_pub = rospy.Publisher(rospy.get_name() + '/original_result', Image, queue_size=1, latch=True)
         self.vis_processed_pub = rospy.Publisher(rospy.get_name() + '/processed_result', Image, queue_size=1, latch=True)
         self.marker_pub = rospy.Publisher(rospy.get_name() + '/axes', MarkerArray, queue_size=1, latch=True)
         self.input_image_pub = rospy.Publisher(rospy.get_name() + "/input_image", Image, queue_size=1, latch=True)
+        self.trigger_id_pub = rospy.Publisher(rospy.get_name() + "/trigger_id", Int32, queue_size=1, latch=True)
 
-        # Define service
+        # Define Subscriber
+        rospy.Subscriber("/phoxi_camera/trigger_id", Int32, self.callback_sub_trigger)
+
+        # Define Service
         get_detection_srv = rospy.Service(rospy.get_name() + '/MaskRCNNSrv', MaskRCNNSrv, self.callback_get_detection)
         set_model_srv = rospy.Service(rospy.get_name() + "/set_model", SetModel, self.callback_set_model)
 
@@ -158,6 +164,41 @@ class MaskRCNNNode(object):
         res.success = True
 
         return res
+
+    def callback_sub_trigger(self, msg):
+        trigger_id = msg.data
+
+        # Get Image
+        rospy.loginfo("Waiting frame ...")
+        timeout = 10
+        image_msg = rospy.wait_for_message(IMAGE_TOPIC2, Image, timeout)
+        rospy.loginfo("Acquired frame")
+
+        start_build_msg = time.time()
+
+        # Convert Image
+        np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+        self.image = np.copy(np_image)
+        
+        # Run Detection
+        input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
+        start_detection = time.time() 
+        rospy.loginfo("Detecting ...")
+        results = self.model.detect([input_image], verbose=0)
+        end_detection = time.time()
+        detection_time = end_detection - start_detection
+        rospy.loginfo("%s[s] (Detection time)", round(detection_time, 3))
+
+        # Build msg
+        self.result = results[0]
+        res = self.build_result_msg()
+
+        end_build_msg = time.time() 
+        build_msg_time = end_build_msg - start_build_msg
+        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
+
+        self.is_service_called = True
+        self.trigger_id_pub.publish(trigger_id)
 
     def callback_get_detection(self, req):
         res = MaskRCNNSrvResponse()
