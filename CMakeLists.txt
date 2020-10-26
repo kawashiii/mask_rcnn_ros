@@ -130,7 +130,7 @@ catkin_package(
 ## Specify additional locations of header files
 ## Your package locations should be listed before other locations
 include_directories(
-# include
+  include
   ${catkin_INCLUDE_DIRS}
   ${OpenCV_INCLUDE_DIRS}
 )
@@ -139,6 +139,10 @@ include_directories(
 # add_library(${PROJECT_NAME}
 #   src/${PROJECT_NAME}/mask_rcnn_ros.cpp
 # )
+add_library(
+    ${PROJECT_NAME}_Region_Growing_Segmentation
+    src/region_growing_segmentation.cpp
+)
 
 ## Add cmake target dependencies of the library
 ## as an example, code may need to be generated before libraries
@@ -165,6 +169,10 @@ add_executable(mask_region_growing src/mask_region_growing.cpp)
 # target_link_libraries(${PROJECT_NAME}_node
 #   ${catkin_LIBRARIES}
 # )
+target_link_libraries(${PROJECT_NAME}_Region_Growing_Segmentation
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+)
 target_link_libraries(mask_region_growing
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
