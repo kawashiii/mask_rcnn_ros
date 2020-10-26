@@ -61,7 +61,7 @@ class RegionGrowingSegmentation {
 
 	float getArea(PointCloudT::Ptr cloud_in);
 
-	void createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, cv::Mat distCoeffs, float scale);
+	void createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, float scale);
 
 
     private:
