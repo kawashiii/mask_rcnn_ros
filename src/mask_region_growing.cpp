@@ -883,16 +883,17 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     ROS_INFO("Subscribed Depth Image");
     cv_bridge::CvImagePtr cv_ptr;
     cv_ptr = cv_bridge::toCvCopy(depth_msg, "32FC1");
+    depth = cv_ptr->image.clone();
 
-    if (debug_mode) {
-        depth = cv_ptr->image.clone();
-    } else {
-        cv::Mat tmp = cv_ptr->image.clone();
-        cv::Mat mapx, mapy;
-        cv::Size imageSize(tmp.cols, tmp.rows);
-        cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
-        cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
-    }
+    //if (debug_mode) {
+        //depth = cv_ptr->image.clone();
+    //} else {
+        //cv::Mat tmp = cv_ptr->image.clone();
+        //cv::Mat mapx, mapy;
+        //cv::Size imageSize(tmp.cols, tmp.rows);
+        //cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
+        //cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
+    //}
 
     int width = depth.cols;
     int height = depth.rows;
