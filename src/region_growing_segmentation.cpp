@@ -20,7 +20,7 @@ RegionGrowingSegmentation::getPointCloud()
 }
 
 void
-RegionGrowingSegmentation::createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, float scale = 1.0)
+RegionGrowingSegmentation::createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, float scale = 1000.0)
 {
     int width = depth.cols;
     int height = depth.rows;
@@ -39,7 +39,7 @@ RegionGrowingSegmentation::createPointCloudFromDepthMap(cv::Mat depth, cv::Mat c
 	    PointT p;
 	    p.z = src[u] / scale;
 	    p.x = (u - cx) * p.z / fx;
-	    p.y = (v - cv) * p.z / fy;
+	    p.y = (v - cy) * p.z / fy;
 	    point_cloud->at(u, v) = p;
 	}
     }

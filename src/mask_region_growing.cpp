@@ -78,7 +78,7 @@ ros::Publisher scene_surface_pointcloud_pub;
 ros::Publisher masked_depth_map_pub;
 ros::Publisher input_pointcloud_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
-std::string depth_topic = "/phoxi_camera/aligned_depth_map";
+std::string depth_topic = "/phoxi_camera/aligned_depth_map_rect";
 std::string debug_depth_topic = "/debug/depth_rect";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
 //vector<mask_rcnn_ros::Centers> center_msg_list;
