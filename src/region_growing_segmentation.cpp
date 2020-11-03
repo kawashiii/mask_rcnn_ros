@@ -19,6 +19,24 @@ RegionGrowingSegmentation::getPointCloud()
     return point_cloud;
 }
 
+PointCloudT::Ptr
+RegionGrowingSegmentation::getPointCloud(pcl::PointIndices indices)
+{
+    PointCloudT::Ptr cloud_out;
+    pcl::ExtractIndices<pcl::PointXYZ> extract;
+    extract.setInputCloud (point_cloud);
+    extract.setIndices (indices);
+    extract.setNegative (false);/ / If set to true, you can extract point clouds outside the specified index
+    extract.filter (*cloud_out);
+    return cloud_out;
+}
+
+NormalCloudT::Ptr
+RegionGrowingSegmentation::getNormalCloud()
+{
+    return normal_cloud;
+}
+
 void
 RegionGrowingSegmentation::createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, float scale = 1000.0)
 {
@@ -42,6 +60,33 @@ RegionGrowingSegmentation::createPointCloudFromDepthMap(cv::Mat depth, cv::Mat c
 	    p.y = (v - cy) * p.z / fy;
 	    point_cloud->at(u, v) = p;
 	}
+    }
+}
+
+void
+RegionGrowingSegmentation::createPointCloudFromMaskedDepthMap(cv::Mat depth, cv::Mat mask, cv::Mat cameraMatrix, float scale = 1000.0)
+{
+    int width = depth.cols;
+    int height = depth.rows;
+    double fx = cameraMatrix.at<double>(0, 0);
+    double fy = cameraMatrix.at<double>(1, 1);
+    double cx = cameraMatrix.at<double>(0, 2);
+    double cy = cameraMatrix.at<double>(1, 2);
+
+    cv::Mat mask_index;
+    cv::findNonZero(mask, mask_index);
+
+    point_cloud->clear();
+    point_cloud->resize(mask_index.total());
+    for (int i = 0; i < mask_index.total(); i++)
+    {
+        int u = mask_index.at<cv::Point>(i).x;
+        int v = mask_index.at<cv::Point>(i).y;
+	PointT p;
+	p.z = depth.at<float>(v, u) / 1000;
+	p.x = (u - cx) * p.z / fx;
+	p.y = (v - cy) * p.z / fy;
+	point_cloud->at(u, v) = p;
     }
 }
 
@@ -88,11 +133,12 @@ RegionGrowingSegmentation::normalEstimationRadiusSearch(float radius = 0.02)
     normal_estimator.compute(*normal_cloud);
 }
 
-void
+pcl::PointIndices
 RegionGrowingSegmentation::segmentation(int min_cluster_size = 100, int max_cluster_size = 7000, int nn = 30, float smoothness_threshold = 3.0/180.0*M_PI, float curvature_threshold = 1.0)
 {
     pcl::RegionGrowing<PointT, pcl::Normal> reg;
     pcl::search::Search<PointT>::Ptr tree (new pcl::search::KdTree<PointT>);
+    vector<pcl::PointIndices> indices;
     reg.setMinClusterSize(min_cluster_size);
     reg.setMaxClusterSize(max_cluster_size);
     reg.setSearchMethod (tree);
@@ -102,6 +148,36 @@ RegionGrowingSegmentation::segmentation(int min_cluster_size = 100, int max_clus
     reg.setSmoothnessThreshold(smoothness_threshold);
     reg.setCurvatureThreshold(curvature_threshold);
     reg.extract(indices);
+
+    return indices;
+}
+
+pcl::PointIndices
+RegionGrowingSegmentation::getSegmentFromPoint(int index)
+{
+    pcl::PointIndices indices;
+    reg.getSegmentFromPoint(index, indices);
+
+    return indices;
+}
+
+int
+RegionGrowingSegmentation::getCenterIndex(PointCloudT::Ptr cloud_in)
+{
+    PointT center;
+    pcl::KdTreeFLANN<PointT> kdtree;
+    vector<int> center_indices(1);
+    vector<float> distances(1);
+    pcl::computeCentroid(cloud_in, center);
+    kdtree.nearestKSearch(center, 1, center_indices, distances);
+
+    return center_indices[0];
+}
+
+void
+RegionGrowingSegmentation::getSegmentedPointCloudList()
+{
+
 }
 
 void
