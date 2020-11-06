@@ -19,7 +19,7 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 ## System dependencies are found with CMake's conventions
-# find_package(Boost REQUIRED COMPONENTS system)
+#find_package(Boost REQUIRED COMPONENTS system)
 find_package(OpenCV REQUIRED)
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -154,6 +154,7 @@ add_library(
 ## The recommended prefix ensures that target names across packages don't collide
 # add_executable(${PROJECT_NAME}_node src/mask_rcnn_ros_node.cpp)
 add_executable(mask_region_growing src/mask_region_growing.cpp)
+add_executable(mask_region_growing_node src/mask_region_growing_node.cpp)
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -174,6 +175,12 @@ target_link_libraries(${PROJECT_NAME}_Region_Growing_Segmentation
   ${OpenCV_LIBRARIES}
 )
 target_link_libraries(mask_region_growing
+  ${catkin_LIBRARIES}
+  ${OpenCV_LIBRARIES}
+)
+
+target_link_libraries(mask_region_growing_node
+  ${PROJECT_NAME}_Region_Growing_Segmentation
   ${catkin_LIBRARIES}
   ${OpenCV_LIBRARIES}
 )

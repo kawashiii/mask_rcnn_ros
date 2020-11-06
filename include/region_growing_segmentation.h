@@ -8,7 +8,6 @@
 #include <math.h>
 
 //PCL
-#include <pcl_ros/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/common/centroid.h>
 #include <pcl/filters/extract_indices.h>
@@ -39,7 +38,18 @@ typedef pcl::PointCloud<NormalT> NormalCloudT;
 #define M_PI 3.14159265358979
 #endif
 
-using namespace std;
+struct MomentOfInertia
+{
+    PointT min_point_AABB;
+    PointT max_point_AABB;
+    PointT min_point_OBB;
+    PointT max_point_OBB;
+    PointT position_OBB;
+    Eigen::Matrix3f rotational_matrix_OBB;
+    Eigen::Vector3f major_vectors;
+    Eigen::Vector3f middle_vectors;
+    Eigen::Vector3f minor_vectors;
+};
 
 class RegionGrowingSegmentation {
     public:
@@ -47,28 +57,33 @@ class RegionGrowingSegmentation {
 
 	void setPointCloud(PointCloudT::Ptr cloud_in);
 	PointCloudT::Ptr getPointCloud();
+	PointCloudT::Ptr getPointCloud(pcl::PointIndices indices);
+	NormalCloudT::Ptr getNormalCloud();
 
-        void downSampling(float x_leaf, float y_leaf, float z_leaf);
+        void downSampling(float x_leaf = 0.002, float y_leaf = 0.002, float z_leaf = 0.002);
 
-	void outlierRemove(int K, float stddev_mul_thresh);
+	void outlierRemove(int K = 50, float stddev_mul_thresh = 1.0);
 
-	void normalEstimationKSearch(int K);
-	void normalEstimationRadiusSearch(float radius);
+	void normalEstimationKSearch(int K = 30);
+	void normalEstimationRadiusSearch(float radius = 0.02);
 
-	void segmentation(int min_cluster_size, int max_cluster_size, int nn, float smoothness_threshold, float curvature_threshold);
+	std::vector<pcl::PointIndices> segmentation(int min_cluster_size = 100, int max_cluster_size = 7000, int nn = 30, float smoothness_threshold = 3.0/180*M_PI, float curvature_threshold = 1.0);
 
-        void computeMomentOfInertia();
+	pcl::PointIndices getSegmentFromPoint(int index);
+	int getCenterIndex(PointCloudT::Ptr cloud_in);
+	PointCloudColorT::Ptr getSegmentedColoredCloud();
+	MomentOfInertia getMomentOfInertia(PointCloudT::Ptr cloud_in);
 
 	float getArea(PointCloudT::Ptr cloud_in);
 
 	void createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, float scale);
-
+        void createPointCloudFromMaskedDepthMap(cv::Mat depth, cv::Mat mask, cv::Mat cameraMatrix, float scale);
 
     private:
 	PointCloudT::Ptr point_cloud;
 	NormalCloudT::Ptr normal_cloud;
-	vector<pcl::PointIndices> indices;
-
+	std::vector<pcl::PointIndices> indices;
+        pcl::RegionGrowing<PointT, pcl::Normal> reg;
 };
 
 #endif
