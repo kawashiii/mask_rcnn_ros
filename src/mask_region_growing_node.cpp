@@ -72,10 +72,11 @@ MaskRegionGrowingNode::markerInitialization()
     y_axis_color.r = 0.0, y_axis_color.g = 1.0, y_axis_color.b = 0.0, y_axis_color.a = 1.0;
     z_axis_color.r = 0.0, z_axis_color.g = 0.0, z_axis_color.b = 1.0, z_axis_color.a = 1.0;
     polygon_color.r = 1.0, polygon_color.g = 1.0, polygon_color.b = 0.0, polygon_color.a = 1.0;
+    raw_center_color.r = 1.0, raw_center_color.g = 0.0, raw_center_color.b = 0.0, raw_center_color.a = 1.0;
     text_color.r = 1.0, text_color.g = 1.0, text_color.b = 1.0, text_color.a = 1.0;
 
-    arrow_scale.x = 0.01, arrow_scale.y = 0.01, arrow_scale.z = 0.01;
-    sphere_scale.x = 0.01, sphere_scale.y = 0.01, sphere_scale.z = 0.01;
+    arrow_scale.x = 0.005, arrow_scale.y = 0.005, arrow_scale.z = 0.005;
+    sphere_scale.x = 0.005, sphere_scale.y = 0.005, sphere_scale.z = 0.005;
     text_scale.x = 0.02, text_scale.y = 0.02, text_scale.z = 0.02;
 }
 
@@ -106,6 +107,7 @@ MaskRegionGrowingNode::callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface:
     ROS_INFO("Service called");
     ros::WallTime start_process_time = ros::WallTime::now();
 
+    raw_center_list = {};
     scene_surface_list = {};
     masked_surface_list = {};
     moas_msg_list = {};
@@ -169,12 +171,16 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
         mask_rcnn_ros::MaskedObjectAttributes moas_msg;
 	for (int i = 0; i < cloud_list.size(); i++)
 	{
-	    int center_index = scene_reg.getCenterIndex(cloud_list[i]);
+	    PointT center = scene_reg.getCenter(cloud_list[i]);
+            raw_center_list.push_back(center);
+	    int center_index = scene_reg.getNeighborPointIndex(center);
 	    pcl::PointIndices cluster = scene_reg.getSegmentFromPoint(center_index);
 
             PointCloudT::Ptr scene_point_cloud = scene_reg.getPointCloud();
 	    NormalCloudT::Ptr scene_normal_cloud = scene_reg.getNormalCloud();
-	    center_index = scene_reg.getCenterIndex(segmented_point_cloud);
+	    PointCloudT::Ptr segmented_point_cloud = scene_reg.getPointCloud(cluster);
+	    center = scene_reg.getCenter(segmented_point_cloud);
+	    center_index = scene_reg.getNeighborPointIndex(center);
 	    float area = scene_reg.getArea(segmented_point_cloud);
 	    MomentOfInertia moi = scene_reg.getMomentOfInertia(segmented_point_cloud);
 
@@ -192,7 +198,9 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
     } else {
         PointCloudT::Ptr mask_point_cloud = mask_reg.getPointCloud();
 	NormalCloudT::Ptr mask_normal_cloud = mask_reg.getNormalCloud();
-	int center_index = mask_reg.getCenterIndex(mask_point_cloud);
+	PointT center = mask_reg.getCenter(mask_point_cloud);
+        raw_center_list.push_back(center);
+	int center_index = mask_reg.getNeighborPointIndex(center);
 	float area = mask_reg.getArea(cloud_list[0]);
 	MomentOfInertia moi = mask_reg.getMomentOfInertia(cloud_list[0]);
         
@@ -319,6 +327,7 @@ MaskRegionGrowingNode::publishMarkerArray()
 {
     visualization_msgs::Marker del_marker = buildDelMarker();
     markers_list.markers.push_back(del_marker);
+    std_msgs::Header header;
     int count = 0;
     for (int i = 0; i < moas_msg_list.size(); i++)
     {
@@ -329,6 +338,8 @@ MaskRegionGrowingNode::publishMarkerArray()
             geometry_msgs::Vector3Stamped y_axis = moas_msg_list[i].y_axes[j];
             geometry_msgs::Vector3Stamped z_axis = moas_msg_list[i].z_axes[j];
             geometry_msgs::PolygonStamped corner = moas_msg_list[i].corners[j];
+
+	    header = center.header;
 
             visualization_msgs::Marker x_axis_marker = buildArrowMarker(center.header, "mask_region_growing_x_axis_" + to_string(i), j, center.point, x_axis.vector, x_axis_color);
             visualization_msgs::Marker y_axis_marker = buildArrowMarker(center.header, "mask_region_growing_y_axis_" + to_string(i), j, center.point, y_axis.vector, y_axis_color);
@@ -352,7 +363,15 @@ MaskRegionGrowingNode::publishMarkerArray()
 	    }
             visualization_msgs::Marker polygon_marker = buildSphereListMarker(corner.header, "mask_region_growing_corner_" + to_string(i), j, polygons, polygon_color);
             markers_list.markers.push_back(polygon_marker);
-	    
+
+	    geometry_msgs::Point point;
+	    point.x = raw_center_list[count].x;
+	    point.y = raw_center_list[count].y;
+	    point.z = raw_center_list[count].z;
+            visualization_msgs::Marker center_marker = buildSphereMarker(header, "mask_region_growing_raw_center_" + to_string(i), j, point, raw_center_color);
+	    markers_list.markers.push_back(center_marker);
+
+	    count++;
 	}
     }
 
@@ -443,9 +462,9 @@ MaskRegionGrowingNode::buildArrowMarker(std_msgs::Header header, string ns, int 
     marker.color = color;
     marker.points.resize(2);
     marker.points[0] = point;
-    marker.points[1].x = point.x + vector.x * 0.04;
-    marker.points[1].y = point.y + vector.y * 0.04;
-    marker.points[1].z = point.z + vector.z * 0.04;
+    marker.points[1].x = point.x + vector.x * 0.02;
+    marker.points[1].y = point.y + vector.y * 0.02;
+    marker.points[1].z = point.z + vector.z * 0.02;
 
     return marker;
 }

@@ -165,17 +165,23 @@ RegionGrowingSegmentation::getSegmentFromPoint(int index)
     return indices;
 }
 
-int
-RegionGrowingSegmentation::getCenterIndex(PointCloudT::Ptr cloud_in)
+PointT
+RegionGrowingSegmentation::getCenter(PointCloudT::Ptr cloud_in)
 {
     PointT center;
     pcl::computeCentroid(*cloud_in, center);
     
+    return center;    
+}
+
+int
+RegionGrowingSegmentation::getNeighborPointIndex(PointT point_in)
+{
     vector<int> center_indices(1);
     vector<float> distances(1);
     pcl::KdTreeFLANN<PointT> kdtree;
     kdtree.setInputCloud(point_cloud);
-    kdtree.nearestKSearch(center, 1, center_indices, distances);
+    kdtree.nearestKSearch(point_in, 1, center_indices, distances);
 
     return center_indices[0];
 }

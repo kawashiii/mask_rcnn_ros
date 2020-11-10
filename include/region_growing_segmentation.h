@@ -70,7 +70,8 @@ class RegionGrowingSegmentation {
 	std::vector<pcl::PointIndices> segmentation(int min_cluster_size = 100, int max_cluster_size = 7000, int nn = 30, float smoothness_threshold = 3.0/180*M_PI, float curvature_threshold = 1.0);
 
 	pcl::PointIndices getSegmentFromPoint(int index);
-	int getCenterIndex(PointCloudT::Ptr cloud_in);
+	PointT getCenter(PointCloudT::Ptr cloud_in);
+	int getNeighborPointIndex(PointT point_in);
 	PointCloudColorT::Ptr getSegmentedColoredCloud();
 	MomentOfInertia getMomentOfInertia(PointCloudT::Ptr cloud_in);
 

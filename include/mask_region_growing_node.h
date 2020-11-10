@@ -76,12 +76,14 @@ class MaskRegionGrowingNode {
 	std_msgs::ColorRGBA y_axis_color;
 	std_msgs::ColorRGBA z_axis_color;
 	std_msgs::ColorRGBA polygon_color;
+	std_msgs::ColorRGBA raw_center_color;
 	std_msgs::ColorRGBA text_color;
 	geometry_msgs::Vector3 arrow_scale;
 	geometry_msgs::Vector3 sphere_scale;
 	geometry_msgs::Vector3 text_scale;
 
 	PointCloudT::Ptr input_scene;
+	std::vector<PointT> raw_center_list;
 	std::vector<PointCloudColorT::Ptr> scene_surface_list;
 	std::vector<PointCloudColorT::Ptr> masked_surface_list;
 	std::vector<mask_rcnn_ros::MaskedObjectAttributes> moas_msg_list;
