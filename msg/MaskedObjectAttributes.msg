@@ -1,3 +1,5 @@
+int32 surface_count
+
 geometry_msgs/PointStamped[] centers
 
 geometry_msgs/Vector3Stamped[] normals

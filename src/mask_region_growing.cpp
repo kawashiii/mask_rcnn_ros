@@ -78,7 +78,7 @@ ros::Publisher scene_surface_pointcloud_pub;
 ros::Publisher masked_depth_map_pub;
 ros::Publisher input_pointcloud_pub;
 std::string camera_info_topic = "/pylon_camera_node/camera_info";
-std::string depth_topic = "/phoxi_camera/aligned_depth_map";
+std::string depth_topic = "/phoxi_camera/aligned_depth_map_rect";
 std::string debug_depth_topic = "/debug/depth_rect";
 std::string frame_id = "basler_ace_rgb_sensor_calibrated";
 //vector<mask_rcnn_ros::Centers> center_msg_list;
@@ -885,15 +885,15 @@ void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
     cv_ptr = cv_bridge::toCvCopy(depth_msg, "32FC1");
     depth = cv_ptr->image.clone();
 
-    if (debug_mode) {
-        depth = cv_ptr->image.clone();
-    } else {
-        cv::Mat tmp = cv_ptr->image.clone();
-        cv::Mat mapx, mapy;
-        cv::Size imageSize(tmp.cols, tmp.rows);
-        cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
-        cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
-    }
+    //if (debug_mode) {
+        //depth = cv_ptr->image.clone();
+    //} else {
+        //cv::Mat tmp = cv_ptr->image.clone();
+        //cv::Mat mapx, mapy;
+        //cv::Size imageSize(tmp.cols, tmp.rows);
+        //cv::initUndistortRectifyMap(cameraMatrix, distCoeffs, cv::Mat(), cameraMatrix, imageSize, CV_32FC1, mapx, mapy);
+        //cv::remap(tmp, depth, mapx, mapy, CV_INTER_NN);
+    //}
 
     int width = depth.cols;
     int height = depth.rows;

@@ -25,6 +25,10 @@ MaskRegionGrowingNode::MaskRegionGrowingNode():
     camera_info = ros::topic::waitForMessage<sensor_msgs::CameraInfo>("/pylon_camera_node/camera_info", ros::Duration(timeout));
     MaskRegionGrowingNode::setCameraParameters();
     ROS_INFO("Set camera paramters");
+
+    listener.waitForTransform("container", frame_id, ros::Time(0), ros::Duration(10.0));
+    listener.lookupTransform("container", frame_id, ros::Time(0), tf_camera_to_container);
+    ROS_INFO("Got tf for camera to container");
 }
 
 void
@@ -157,6 +161,14 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
     vector<pcl::PointIndices> mask_reg_indices = mask_reg.segmentation();
     masked_surface_list.push_back(mask_reg.getSegmentedColoredCloud());
 
+    if (mask_reg_indices.size() == 0) {
+        ROS_WARN("Couldn't find any surface");
+        mask_rcnn_ros::MaskedObjectAttributes moas_msg;
+        moas_msg.surface_count = 0;
+        moas_msg_list.push_back(moas_msg);
+	return;
+    }
+    
     ROS_INFO("%d surfaces found", (int)mask_reg_indices.size());
     vector<PointCloudT::Ptr> cloud_list;
     vector<PointT> center_list;
@@ -169,13 +181,18 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 
     if (cloud_list.size() > 1) {
         mask_rcnn_ros::MaskedObjectAttributes moas_msg;
+	moas_msg.surface_count = 0;
 	for (int i = 0; i < cloud_list.size(); i++)
 	{
 	    PointT center = scene_reg.getCenter(cloud_list[i]);
             raw_center_list.push_back(center);
 	    int center_index = scene_reg.getNeighborPointIndex(center);
 	    pcl::PointIndices cluster = scene_reg.getSegmentFromPoint(center_index);
-
+	    if (cluster.indices.size() == 0) {
+	        ROS_WARN("Couldn't any surface where the center point belongs to");
+	        continue;
+	    }
+	    
             PointCloudT::Ptr scene_point_cloud = scene_reg.getPointCloud();
 	    NormalCloudT::Ptr scene_normal_cloud = scene_reg.getNormalCloud();
 	    PointCloudT::Ptr segmented_point_cloud = scene_reg.getPointCloud(cluster);
@@ -185,6 +202,7 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	    MomentOfInertia moi = scene_reg.getMomentOfInertia(segmented_point_cloud);
 
 	    mask_rcnn_ros::MaskedObjectAttributes moas_tmp_msg = build_moa_msg(scene_point_cloud, scene_normal_cloud, center_index, area, moi);
+            moas_msg.surface_count += 1;
             moas_msg.centers.push_back(moas_tmp_msg.centers[0]);
             moas_msg.normals.push_back(moas_tmp_msg.normals[0]);
             moas_msg.areas.push_back(moas_tmp_msg.areas[0]);
@@ -206,6 +224,7 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
         
         mask_rcnn_ros::MaskedObjectAttributes moas_msg;
 	moas_msg = build_moa_msg(mask_point_cloud, mask_normal_cloud, center_index, area, moi);
+	moas_msg.surface_count = 1;
 	
 	moas_msg_list.push_back(moas_msg);
     }
@@ -331,7 +350,7 @@ MaskRegionGrowingNode::publishMarkerArray()
     int count = 0;
     for (int i = 0; i < moas_msg_list.size(); i++)
     {
-	for (int j = 0; j < moas_msg_list[i].centers.size(); j++)
+	for (int j = 0; j < moas_msg_list[i].surface_count; j++)
 	{
             geometry_msgs::PointStamped center = moas_msg_list[i].centers[j];
             geometry_msgs::Vector3Stamped x_axis = moas_msg_list[i].x_axes[j];

@@ -5,6 +5,7 @@
 //ROS
 #include <ros/ros.h>
 #include <ros/package.h>
+#include <tf/transform_listener.h>
 #include <pcl_ros/point_cloud.h>
 #include <visualization_msgs/Marker.h>
 #include <visualization_msgs/MarkerArray.h>
@@ -46,6 +47,8 @@ class MaskRegionGrowingNode {
 
     private:
 	ros::NodeHandle nh;
+	tf::TransformListener listener;
+	tf::StampedTransform tf_camera_to_container;
 	float timeout;
 	RegionGrowingSegmentation scene_reg;
 

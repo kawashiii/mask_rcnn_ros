@@ -46,6 +46,7 @@ struct MomentOfInertia
     PointT max_point_OBB;
     PointT position_OBB;
     Eigen::Matrix3f rotational_matrix_OBB;
+
     Eigen::Vector3f major_vectors;
     Eigen::Vector3f middle_vectors;
     Eigen::Vector3f minor_vectors;
