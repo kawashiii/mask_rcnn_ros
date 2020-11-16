@@ -28,6 +28,9 @@ MaskRegionGrowingNode::MaskRegionGrowingNode():
 
     listener.waitForTransform("container", frame_id, ros::Time(0), ros::Duration(10.0));
     listener.lookupTransform("container", frame_id, ros::Time(0), tf_camera_to_container);
+    Eigen::Affine3d eigen_tf;
+    tf::transformTFToEigen(tf_camera_to_container, eigen_tf);
+    matrix_camera_to_container = eigen_tf.matrix().cast<float>();
     ROS_INFO("Got tf for camera to container");
 }
 
@@ -89,6 +92,7 @@ void
 MaskRegionGrowingNode::callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg)
 {
     ROS_INFO("Subscribed Depth Image");
+    ros::WallTime start_process_time = ros::WallTime::now();
     cv_bridge::CvImagePtr cv_ptr;
     cv_ptr = cv_bridge::toCvCopy(depth_msg, "32FC1");
 
@@ -99,9 +103,13 @@ MaskRegionGrowingNode::callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg
     scene_reg.createPointCloudFromDepthMap(depth, cameraMatrix, 1000.0);
     //pcl::copyPointCloud(*(scene_reg.getPointCloud()), *input_scene);
     input_scene = scene_reg.getPointCloud();
+    //scene_reg.transformPointCloud(matrix_camera_to_container);
     scene_reg.downSampling();
     scene_reg.outlierRemove();
 
+    ros::WallTime end_process_time = ros::WallTime::now();
+    double execution_process_time = (end_process_time - start_process_time).toNSec() * 1e-9;
+    ROS_INFO("PreProcessing time(s): %.3f", execution_process_time);
     ROS_INFO("Finished Preprocessing");
 }
 

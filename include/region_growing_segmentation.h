@@ -9,6 +9,7 @@
 
 //PCL
 #include <pcl/point_types.h>
+#include <pcl/common/transforms.h>
 #include <pcl/common/centroid.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/passthrough.h>
@@ -61,13 +62,11 @@ class RegionGrowingSegmentation {
 	PointCloudT::Ptr getPointCloud(pcl::PointIndices indices);
 	NormalCloudT::Ptr getNormalCloud();
 
+	void transformPointCloud(Eigen::Matrix4f matrix);
         void downSampling(float x_leaf = 0.002, float y_leaf = 0.002, float z_leaf = 0.002);
-
 	void outlierRemove(int K = 50, float stddev_mul_thresh = 1.0);
-
 	void normalEstimationKSearch(int K = 30);
 	void normalEstimationRadiusSearch(float radius = 0.02);
-
 	std::vector<pcl::PointIndices> segmentation(int min_cluster_size = 100, int max_cluster_size = 7000, int nn = 30, float smoothness_threshold = 3.0/180*M_PI, float curvature_threshold = 1.0);
 
 	pcl::PointIndices getSegmentFromPoint(int index);
@@ -75,7 +74,6 @@ class RegionGrowingSegmentation {
 	int getNeighborPointIndex(PointT point_in);
 	PointCloudColorT::Ptr getSegmentedColoredCloud();
 	MomentOfInertia getMomentOfInertia(PointCloudT::Ptr cloud_in);
-
 	float getArea(PointCloudT::Ptr cloud_in);
 
 	void createPointCloudFromDepthMap(cv::Mat depth, cv::Mat cameraMatrix, float scale);

@@ -96,6 +96,12 @@ RegionGrowingSegmentation::createPointCloudFromMaskedDepthMap(cv::Mat depth, cv:
 }
 
 void
+RegionGrowingSegmentation::transformPointCloud(Eigen::Matrix4f matrix)
+{
+    pcl::transformPointCloud(*point_cloud, *point_cloud, matrix);
+}
+
+void
 RegionGrowingSegmentation::downSampling(float x_leaf, float y_leaf, float z_leaf)
 {
     pcl::VoxelGrid<PointT> voxelSampler;
