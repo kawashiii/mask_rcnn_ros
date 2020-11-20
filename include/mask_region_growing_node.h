@@ -36,6 +36,7 @@ class MaskRegionGrowingNode {
         void maskedRegionGrowing(cv::Mat mask);
 	mask_rcnn_ros::MaskedObjectAttributes build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr normal_cloud, int center_index, float area, MomentOfInertia moi);
 
+	bool checkPointRegion(geometry_msgs::Point point);
 	void publishPointCloud();
 	void publishMarkerArray();
 	void publishMaskedDepthMap();
@@ -50,6 +51,7 @@ class MaskRegionGrowingNode {
 	ros::NodeHandle nh;
 	tf::TransformListener listener;
 	tf::StampedTransform tf_camera_to_container;
+	Eigen::Affine3d eigen_tf;
 	Eigen::Matrix4f matrix_camera_to_container;
 	float timeout;
 	RegionGrowingSegmentation scene_reg;
@@ -72,6 +74,13 @@ class MaskRegionGrowingNode {
 	float fy;
 	float cx;
 	float cy;
+
+	float x_min;
+	float x_max;
+	float y_min;
+	float y_max;
+	float z_min;
+	float z_max;
 	
 	std::vector<sensor_msgs::Image> mask_msgs;
 	cv::Mat depth;

@@ -5,7 +5,8 @@ using namespace std;
 MaskRegionGrowingNode::MaskRegionGrowingNode():
     timeout(5.0),
     is_service_called(false),
-    frame_id("basler_ace_rgb_sensor_calibrated")
+    frame_id("basler_ace_rgb_sensor_calibrated"),
+    x_min(-0.298), x_max(0.298), y_min(-0.200), y_max(0.200), z_min(0.005), z_max(0.300)
 {
     ROS_INFO("Initialized Node");
 
@@ -28,9 +29,9 @@ MaskRegionGrowingNode::MaskRegionGrowingNode():
 
     listener.waitForTransform("container", frame_id, ros::Time(0), ros::Duration(10.0));
     listener.lookupTransform("container", frame_id, ros::Time(0), tf_camera_to_container);
-    Eigen::Affine3d eigen_tf;
+    //Eigen::Affine3d eigen_tf;
     tf::transformTFToEigen(tf_camera_to_container, eigen_tf);
-    matrix_camera_to_container = eigen_tf.matrix().cast<float>();
+    //matrix_camera_to_container = eigen_tf.matrix().cast<float>();
     ROS_INFO("Got tf for camera to container");
 }
 
@@ -210,14 +211,18 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	    MomentOfInertia moi = scene_reg.getMomentOfInertia(segmented_point_cloud);
 
 	    mask_rcnn_ros::MaskedObjectAttributes moas_tmp_msg = build_moa_msg(scene_point_cloud, scene_normal_cloud, center_index, area, moi);
-            moas_msg.surface_count += 1;
-            moas_msg.centers.push_back(moas_tmp_msg.centers[0]);
-            moas_msg.normals.push_back(moas_tmp_msg.normals[0]);
-            moas_msg.areas.push_back(moas_tmp_msg.areas[0]);
-            moas_msg.corners.push_back(moas_tmp_msg.corners[0]);
-            moas_msg.x_axes.push_back(moas_tmp_msg.x_axes[0]);
-            moas_msg.y_axes.push_back(moas_tmp_msg.y_axes[0]);
-            moas_msg.z_axes.push_back(moas_tmp_msg.z_axes[0]);
+
+	    moas_msg.centers.push_back(moas_tmp_msg.centers[0]);
+	    moas_msg.normals.push_back(moas_tmp_msg.normals[0]);
+	    moas_msg.areas.push_back(moas_tmp_msg.areas[0]);
+	    moas_msg.corners.push_back(moas_tmp_msg.corners[0]);
+	    moas_msg.x_axes.push_back(moas_tmp_msg.x_axes[0]);
+	    moas_msg.y_axes.push_back(moas_tmp_msg.y_axes[0]);
+	    moas_msg.z_axes.push_back(moas_tmp_msg.z_axes[0]);  
+            if (checkPointRegion(moas_tmp_msg.centers[0].point))
+                moas_msg.surface_count += 1;
+	    else
+                ROS_WARN("This point is outside of container");	    
 	}
 	moas_msg_list.push_back(moas_msg);
 
@@ -232,7 +237,11 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
         
         mask_rcnn_ros::MaskedObjectAttributes moas_msg;
 	moas_msg = build_moa_msg(mask_point_cloud, mask_normal_cloud, center_index, area, moi);
-	moas_msg.surface_count = 1;
+	moas_msg.surface_count = 0;
+        if (checkPointRegion(moas_msg.centers[0].point))
+            moas_msg.surface_count += 1;
+        else
+            ROS_WARN("This point is outside of container");	    
 	
 	moas_msg_list.push_back(moas_msg);
     }
@@ -318,6 +327,21 @@ MaskRegionGrowingNode::build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr n
     return moas_msg;
 }
 
+bool
+MaskRegionGrowingNode::checkPointRegion(geometry_msgs::Point point)
+{
+    Eigen::Vector3d eigen_point;
+    eigen_point << point.x, point.y, point.z;
+
+    eigen_point = eigen_tf.rotation()*eigen_point + eigen_tf.translation();
+    return (eigen_point[0] > x_min &&
+	    eigen_point[0] < x_max &&
+	    eigen_point[1] > y_min &&
+	    eigen_point[1] < y_max &&
+	    eigen_point[2] > z_min &&
+	    eigen_point[2] < z_max);
+}
+
 void
 MaskRegionGrowingNode::publishPointCloud()
 {
@@ -358,7 +382,7 @@ MaskRegionGrowingNode::publishMarkerArray()
     int count = 0;
     for (int i = 0; i < moas_msg_list.size(); i++)
     {
-	for (int j = 0; j < moas_msg_list[i].surface_count; j++)
+        for (int j = 0; j < moas_msg_list[i].centers.size(); j++)
 	{
             geometry_msgs::PointStamped center = moas_msg_list[i].centers[j];
             geometry_msgs::Vector3Stamped x_axis = moas_msg_list[i].x_axes[j];
