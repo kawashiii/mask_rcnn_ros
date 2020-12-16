@@ -9,13 +9,13 @@ add_compile_options(-std=c++11)
 ## is used, also find other catkin packages
 find_package(catkin REQUIRED COMPONENTS
   cv_bridge
-  message_generation
   rospy
   sensor_msgs
   geometry_msgs
   std_msgs
   roscpp
   pcl_ros
+  mask_rcnn_ros_msgs
 )
 
 ## System dependencies are found with CMake's conventions
@@ -52,25 +52,25 @@ find_package(OpenCV REQUIRED)
 ##   * add every package in MSG_DEP_SET to generate_messages(DEPENDENCIES ...)
 
 ## Generate messages in the 'msg' folder
-add_message_files(
-  FILES
-  MaskRCNNMsg.msg
-  Centers.msg
-  Normals.msg
-  Areas.msg
-  MaskedObjectAttributes.msg
-#   Message1.msg
-#   Message2.msg
-)
+#add_message_files(
+#  FILES
+#  MaskRCNNMsg.msg
+#  Centers.msg
+#  Normals.msg
+#  Areas.msg
+#  MaskedObjectAttributes.msg
+##   Message1.msg
+##   Message2.msg
+#)
 
 ## Generate services in the 'srv' folder
-add_service_files(
-  FILES
-  MaskRCNNSrv.srv
-  GetMaskedSurface.srv
-  GetNormal.srv
-  SetModel.srv
-)
+#add_service_files(
+#  FILES
+#  MaskRCNNSrv.srv
+#  GetMaskedSurface.srv
+#  GetNormal.srv
+#  SetModel.srv
+#)
 
 ## Generate actions in the 'action' folder
 # add_action_files(
@@ -80,12 +80,12 @@ add_service_files(
 # )
 
 ## Generate added messages and services with any dependencies listed here
-generate_messages(
-  DEPENDENCIES
-  sensor_msgs
-  geometry_msgs
-  std_msgs
-)
+#generate_messages(
+#  DEPENDENCIES
+#  sensor_msgs
+#  geometry_msgs
+#  std_msgs
+#)
 
 ################################################
 ## Declare ROS dynamic reconfigure parameters ##

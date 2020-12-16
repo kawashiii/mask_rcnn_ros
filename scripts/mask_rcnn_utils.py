@@ -18,7 +18,7 @@ from geometry_msgs.msg import Vector3
 from geometry_msgs.msg import Vector3Stamped
 import ros_numpy
 import tf
-from mask_rcnn_ros.srv import GetNormal, GetNormalResponse
+from mask_rcnn_ros_msgs.srv import GetNormal, GetNormalResponse
 
 class MaskRCNNUtils(object):
     def __init__(self):
