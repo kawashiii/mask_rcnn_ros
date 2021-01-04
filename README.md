@@ -96,7 +96,7 @@ mkdir models
 Open a command on the host computer  
 
 Downlodad the appropriate file (for example mask_rcnn_lab_choice.h5)  
-Copy the file in the models folder inside the docker  
+Copy the file in the models folder inside the docker while the mrcnn_ros docker is running  
 
 ```bash
 sudo docker cp mask_rcnn_lab_choice.h5 mrcnn_ros:/root/catkin_ws/src/mask_rcnn_ros/models
