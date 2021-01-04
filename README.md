@@ -58,6 +58,14 @@ apt upgrade -y
 
 **4. catkin init (Inside Docker Container)**
 ```
+prepare the ros environment with the .bashrc file by the following command lines
+
+source /opt/ros/kinetic/setup.bash
+source $HOME/catkin_ws/devel/setup.bash
+source $HOME/catkin_build_ws/install/setup.bash --extend
+export ROS_IP=100.80.196.244
+
+
 cd /root/catkin_ws/src
 catkin_init_workspace
 cd /root/catkin_ws 
