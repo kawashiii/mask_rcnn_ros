@@ -26,6 +26,10 @@ $ rossevice call /mask_rcnn/MaskRCNNSrv
 ## Installation
 **1. Docker Build**  
 Copy Dockerfile for [cpu](./docker/Dockerfile_cpu) or [gpu](./docker/Dockerfile_gpu) to your folder.
+```bash
+ln -s Dockerfile_gpu Dockerfile
+chmod +x Dockerfile
+```
 After the copy, build Dockerfile.  
 ```
 $ sudo docker build -t mrcnn_ros:dev .
