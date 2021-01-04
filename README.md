@@ -63,7 +63,7 @@ prepare the ros environment with the .bashrc file by the following command lines
 source /opt/ros/kinetic/setup.bash
 source $HOME/catkin_ws/devel/setup.bash
 source $HOME/catkin_build_ws/install/setup.bash --extend
-export ROS_IP=100.80.196.244
+export ROS_IP=###.##.###.###
 
 
 cd /root/catkin_ws/src
