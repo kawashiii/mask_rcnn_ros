@@ -87,3 +87,19 @@ cd /root/catkin_build_ws
 catkin build cv_bridge
 source install/setup.bash --extend
 ```
+
+**6. Copy the hdf5 model file (Inside Docker Container)**
+```bash
+cd /root/catkin_ws/src/mask_rcnn_ros
+mkdir models
+```
+Open a command on the host computer  
+
+Downlodad the appropriate file (for example mask_rcnn_lab_choice.h5)  
+Copy the file in the models folder inside the docker  
+
+```bash
+sudo docker cp mask_rcnn_lab_choice.h5 mrcnn_ros:/root/catkin_ws/src/mask_rcnn_ros/models
+```
+
+
