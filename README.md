@@ -68,6 +68,9 @@ export ROS_IP=100.80.196.244
 
 cd /root/catkin_ws/src
 catkin_init_workspace
+
+git clone https://github.com/damien-petit/mask_rcnn_ros_msgs.git
+
 cd /root/catkin_ws 
 catkin_make
 source devel/setup.bash
