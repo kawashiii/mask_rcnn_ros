@@ -8,6 +8,7 @@ import threading
 import numpy as np
 
 import rospy
+import rosparam
 import roslib.packages
 from std_msgs.msg import String
 from std_msgs.msg import Int32
@@ -25,7 +26,6 @@ from mask_rcnn_ros.srv import *
 #from region_growing_segmentation.srv import *
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
-import lab
 import cv2
 from math import atan2, cos, sin, sqrt, pi
 from cv_bridge import CvBridge
@@ -33,66 +33,60 @@ from cv_bridge import CvBridge
 from mrcnn import utils
 from mrcnn import model as modellib
 from mrcnn import visualize
+from mrcnn.config import Config
 from keras.backend import tensorflow_backend as backend
 
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL_DIR = os.path.join(ROOT_DIR, "models/")
-CLASS_NAME = "choice"
-MODEL = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
 
-CAMERA_INFO_TOPIC = "/pylon_camera_node/camera_info"
-IMAGE_TOPIC = "/pylon_camera_node/image_rect"
-IMAGE_TOPIC2 = "/phoxi_camera/external_camera_texture"
-DEPTH_TOPIC = "/phoxi_camera/aligned_depth_map"
-FRAME_ID = "basler_ace_rgb_sensor_calibrated"
-
-DEBUG_IMAGE_TOPIC = "/debug/image_rect"
-
-# if the depth of (x, y) is 0, it is approximate depth value around specific pixel
-DEPTH_APPROXIMATE_RANGE = 10
-
-class InferenceConfig(lab.LabConfig):
-    # Set batch size to 1 since we'll be running inference on
-    # one image at a time. Batch size = GPU_COUNT * IMAGES_PER_GPU
-    GPU_COUNT = 1
+class MaskRCNNConfig(Config):
+    NAME = "lab"
     IMAGES_PER_GPU = 1
-    DETECTION_MIN_CONFIDENCE = 0.5
-    DETECTION_NMS_THRESHOLD = 0.5
+    GPU_COUNT = 1
+    NUM_CLASSES = 2
+    DETECTION_MIN_CONFIDENCE = 0.7
+    DETECTION_NMS_THRESHOLD = 0.3
+    def __init__(self, channel, mean_pixel):
+        self.IMAGE_CHANNEL_COUNT = channel
+        self.MEAN_PIXEL = mean_pixel
+        super().__init__()
 
 class MaskRCNNNode(object):
     def __init__(self):
+        self.param, _ = rosparam.load_file(ROOT_DIR + "/config/mask_rcnn.yaml")[0]
+        self.object_attributes, _ = rosparam.load_file(ROOT_DIR + "/config/object_attributes.yaml")[0]
+        
         self.cv_bridge = CvBridge()
         self.is_service_called = False
+        self.target_object = "beads"
 
         # Create model object in inference mode.
-        config = InferenceConfig()
-        #config.display()
+        channel = self.param[self.param["input_data_type"]+"_config"]["IMAGE_CHANNEL_COUNT"]
+        mean_pixel = np.array(self.param[self.param["input_data_type"]+"_config"]["MEAN_PIXEL"])
+        config = MaskRCNNConfig(channel, mean_pixel)
+        model_file = os.path.join(MODEL_DIR, "mask_rcnn_lab_choice.h5")
+        if self.param["input_data_type"] == "depth":
+            model_file = os.path.join(MODEL_DIR, "mask_rcnn_lab_depth.h5")        
+
         self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
-        self.model.load_weights(MODEL, by_name=True)
+        self.model.load_weights(model_file, by_name=True)
         self.model.keras_model._make_predict_function()
-        self.class_names = ['BG', CLASS_NAME]
+        self.class_names = ['BG', "obj"]
 
-        # Set calibration matrix
+        # Set camera topic
         rospy.loginfo("Waiting camera info topic")
-        camera_info = rospy.wait_for_message(CAMERA_INFO_TOPIC, CameraInfo, 10)
-        self.camera_matrix = np.array(camera_info.K).reshape([3, 3])
-        self.fx = self.camera_matrix[0][0]
-        self.fy = self.camera_matrix[1][1]
-        self.cx = self.camera_matrix[0][2]
-        self.cy = self.camera_matrix[1][2]
-        self.dist_coeffs = np.array(camera_info.D)
-        self.map = cv2.initUndistortRectifyMap(self.camera_matrix, self.dist_coeffs, np.eye(3), self.camera_matrix, (camera_info.width, camera_info.height), cv2.CV_32FC1)
-
+        camera_info_topic = self.param[self.param["input_camera"]]["camera_info_topic"]
+        camera_info = rospy.wait_for_message(camera_info_topic, CameraInfo, 10)
         width = camera_info.width
         height = camera_info.height
         size = height, width, 3
+        if self.param["input_data_type"] == "depth":
+            size = height, width, 1
         self.dummy_image = np.zeros(size, dtype=np.uint8)
         rospy.loginfo("Acquired camera info")
 
-        if rospy.has_param("/mask_rcnn/debug_mode") and rospy.get_param("/mask_rcnn/debug_mode"):
+        if self.param["debug"]:
             rospy.logwarn("'mask_rcnn' node is Debug Mode")
-            global IMAGE_TOPIC
-            IMAGE_TOPIC = DEBUG_IMAGE_TOPIC       
     
     def run(self):
         # Define Publisher
@@ -139,26 +133,30 @@ class MaskRCNNNode(object):
 
     def callback_set_model(self, req):
         res = SetModelResponse()
+
+        self.target_object = req.class_name
     
-        CLASS_NAME = req.class_name
-        MODEL = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + CLASS_NAME + ".h5")
+        # class_name = req.class_name
+        # model_file = os.path.join(MODEL_DIR, "mask_rcnn_lab_" + class_name + ".h5")
         
-        # Create model object in inference mode.
-        try:
-            backend.clear_session()
-            config = InferenceConfig()
-            self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
-            self.model.load_weights(MODEL, by_name=True)
-            self.model.keras_model._make_predict_function()
-        except Exception as e:
-            res.message = str(e)
-            res.success = False
-            rospy.logerr(e)
-            return res
+        # # Create model object in inference mode.
+        # try:
+        #     backend.clear_session()
+        #     config = MaskRCNNConfig()
+        #     config.IMAGE_CHANNEL_COUNT = self.param[self.param["input_data_type"]+"_config"]["IMAGE_CHANNEL_COUNT"]
+        #     config.MEAN_PIXEL = self.param[self.param["input_data_type"]+"_config"]["MEAN_PIXEL"]
+        #     self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
+        #     self.model.load_weights(model_file, by_name=True)
+        #     self.model.keras_model._make_predict_function()
+        # except Exception as e:
+        #     res.message = str(e)
+        #     res.success = False
+        #     rospy.logerr(e)
+        #     return res
         
-        self.class_names = ['BG', CLASS_NAME]
-        self.model.detect([self.dummy_image], verbose=0)
-        rospy.loginfo("Finished setting " + CLASS_NAME + " model")
+        # self.class_names = ['BG', class_name]
+        # self.model.detect([self.dummy_image], verbose=0)
+        # rospy.loginfo("Finished setting " + class_name + " model")
 
         res.message = "OK"
         res.success = True
@@ -171,17 +169,31 @@ class MaskRCNNNode(object):
         # Get Image
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        image_msg = rospy.wait_for_message(IMAGE_TOPIC2, Image, timeout)
+        image_topic = self.param[self.param["input_camera"]]["image_topic"]
+        depth_topic = self.param[self.param["input_camera"]]["depth_topic"]
+        if self.param["debug"]:
+            image_topic = "/debug" + image_topic
+            depth_topic = "/debug" + depth_topic
+        image_msg = rospy.wait_for_message(image_topic, Image, timeout)
+        depth_msg = rospy.wait_for_message(depth_topic, Image, timeout)
         rospy.loginfo("Acquired frame")
 
         start_build_msg = time.time()
 
         # Convert Image
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
+        np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
         self.image = np.copy(np_image)
         
         # Run Detection
         input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
+        if self.param["input_data_type"] == "depth":
+            input_image = np.copy(np_depth)
+            input_image = (input_image - 1000) / (2000 - 1000)
+            input_image[np.where(input_image < 0.0)] = 0.0
+            input_image[np.where(input_image > 1.0)] = 1.0
+            input_image = np.reshape(input_image, [input_image.shape[0], input_image.shape[1], 1])
+            
         start_detection = time.time() 
         rospy.loginfo("Detecting ...")
         results = self.model.detect([input_image], verbose=0)
@@ -206,23 +218,32 @@ class MaskRCNNNode(object):
         # Get Image
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        image_msg = rospy.wait_for_message(IMAGE_TOPIC, Image, timeout)
+        image_topic = self.param[self.param["input_camera"]]["image_topic"]
+        depth_topic = self.param[self.param["input_camera"]]["depth_topic"]
+        if self.param["debug"]:
+            image_topic = "/debug" + image_topic
+            depth_topic = "/debug" + depth_topic
+
+        image_msg = rospy.wait_for_message(image_topic, Image, timeout)
+        depth_msg = rospy.wait_for_message(depth_topic, Image, timeout)
         rospy.loginfo("Acquired frame")
 
         start_build_msg = time.time()
 
         # Convert Image
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
-        #height,width = np_image.shape[:2]
-        #center = (int(width/2), int(height/2))
-        #angle = 30.0
-        #scale = 1.0
-        #trans = cv2.getRotationMatrix2D(center, angle , scale)
-        #np_image = cv2.warpAffine(np_image, trans, (width,height))
+        np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
         self.image = np.copy(np_image)
         
         # Run Detection
         input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
+        if self.param["input_data_type"] == "depth":
+            input_image = np.copy(np_depth)
+            input_image = (input_image - 1000) / (2000 - 1000)
+            input_image[np.where(input_image < 0.0)] = 0.0
+            input_image[np.where(input_image > 1.0)] = 1.0
+            input_image = np.reshape(input_image, [input_image.shape[0], input_image.shape[1], 1])
+            
         start_detection = time.time() 
         rospy.loginfo("Detecting ...")
         results = self.model.detect([input_image], verbose=0)
@@ -245,7 +266,7 @@ class MaskRCNNNode(object):
         rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
         result_msg.header.stamp = rospy.Time.now()
-        result_msg.header.frame_id = FRAME_ID
+        result_msg.header.frame_id = self.param[self.param["input_camera"]]["frame_id"]
         result_msg.count = 0
 
         self.vis_processed_result = np.copy(self.image)
@@ -305,6 +326,11 @@ class MaskRCNNNode(object):
 
         for i in range(result_msg.count):
             masked_object_attrs = res.moas_list[i]
+            if len(masked_object_attrs.centers) == 0:
+                continue
+            if not self.check_object_size(masked_object_attrs):
+                rospy.logwarn("Object Id %d is out of gt size", i)
+                result_msg.scores[i] = 0.0
             result_msg.x_axes.append(masked_object_attrs.x_axes[0])
             result_msg.y_axes.append(masked_object_attrs.y_axes[0])
             result_msg.z_axes.append(masked_object_attrs.z_axes[0])
@@ -321,64 +347,6 @@ class MaskRCNNNode(object):
             text_marker = self.build_marker_msg(center_msg.header.frame_id, Marker.TEXT_VIEW_FACING, i, center_msg.point, normal_msg.vector, 1.0, 1.0, 1.0, "id_text")
             axes_marker_msg.markers.append(normal_marker)
             axes_marker_msg.markers.append(text_marker)
-
-        #sort_item = []
-        #check_center_list = []
-        #for i, (centers_msg, normals_msg, areas_msg) in enumerate(zip(res.centers_list, res.normals_list, res.areas_list)):
-        #    for j, (center, normal, area) in enumerate(zip(centers_msg.centers, normals_msg.normals, areas_msg.areas)):
-        #        if (center.point.z == 0.0) : continue
-        #        if center.point in check_center_list : continue
-        #        check_center_list.append(center.point)
-        #        sort_item.append([i, center, normal, result_msg.boxes[i], area])
-
-        #highest_item = sorted(sort_item, key=lambda x:x[1].point.z)
-        #highest_good_normal_list = []
-        #most_same_height_list = []
-        #height = -1
-        #for item in highest_item:
-        #    if len(most_same_height_list) == 0:
-        #        height = item[1].point.z
-        #        most_same_height_list.append(item)
-        #        continue
-
-        #    if item[1].point.z - height < 0.02:
-        #        most_same_height_list.append(item)
-        #    else:
-        #        bad_normal_list = []
-        #        for h in most_same_height_list:
-        #            if h[2].vector.z < -0.9:
-        #                highest_good_normal_list.append(h)
-        #            else:
-        #                bad_normal_list.append(h)
-        #        if len(bad_normal_list) != 0: 
-        #            sorted_bad_normal_list = sorted(bad_normal_list, key=lambda x:x[2].vector.z)
-        #            highest_good_normal_list += sorted_bad_normal_list
-        #        #good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
-        #        #highest_good_normal_list += good_normal_list
-        #        most_same_height_list = []
-        #        most_same_height_list.append(item)
-        #        height = item[1].point.z
-
-        #if len(most_same_height_list) != 0:
-        #    good_normal_list = sorted(most_same_height_list, key=lambda x:x[2].vector.z)
-        #    highest_good_normal_list += good_normal_list
-            
-        #result_msg.count = 0
-        #result_msg.ids = []
-        #result_msg.boxes = []
-        #for i, item in enumerate(highest_good_normal_list):
-        #    result_msg.ids.append(i)
-        #    result_msg.centers.append(item[1])
-        #    result_msg.normals.append(item[2])
-        #    result_msg.axes.append(item[2])
-        #    result_msg.boxes.append(item[3])
-        #    result_msg.areas.append(item[4])
-        #    result_msg.count += 1
-        #        
-        #    normal_marker = self.build_marker_msg(item[1].header.frame_id, Marker.ARROW, i, item[1].point, item[2].vector, 0.0, 0.0, 1.0, "normal")
-        #    text_marker = self.build_marker_msg(item[1].header.frame_id, Marker.TEXT_VIEW_FACING, i, item[1].point, item[2].vector, 1.0, 1.0, 1.0, "id_text")
-        #    axes_marker_msg.markers.append(normal_marker)
-        #    axes_marker_msg.markers.append(text_marker)
 
         
         self.result_pub.publish(result_msg)
@@ -402,6 +370,22 @@ class MaskRCNNNode(object):
 
         return ret_mask
 
+    def check_object_size(self, attr):
+        long_side = attr.long_sides[0] * 1000
+        short_side = attr.short_sides[0] * 1000
+        gt_size = self.object_attributes[self.target_object]
+
+        is_long_size = False
+        is_short_size = False
+        if gt_size[0]*0.8 < long_side < gt_size[0]*1.1 or gt_size[1]*0.8 < long_side < gt_size[1]*1.1:
+            is_long_size = True
+
+        if gt_size[1]*0.8 < short_side < gt_size[1]*1.1 or gt_size[2]*0.8 < short_side < gt_size[2]*1.1:
+            is_short_size = True
+
+        return is_long_size and is_short_size
+           
+        
     def build_marker_msg(self, frame_id, marker_type, marker_id, center, axis, r, g, b, description):
         axis_marker = Marker()
 

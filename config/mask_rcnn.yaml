@@ -1,0 +1,26 @@
+2d_camera:
+    frame_id : "basler_ace_rgb_sensor_calibrated"
+    camera_info_topic : "/pylon_camera_node/camera_info"
+    image_topic : "/pylon_camera_node/image_rect"
+    depth_topic : "/phoxi_camera/aligned_depth_map_rect"
+
+3d_camera:
+    frame_id : "PhoXi3Dscanner_sensor"
+    image_topic : "/phoxi_camera/rgb_texture_rect"
+    depth_topic : "/phoxi_camera/depth_map_rect"
+    normal_topic : "/phoxi_camera/normal_map_rect"
+    
+bin_frame_id : "container"
+
+input_camera : "2d_camera" # or "3d_camera"
+input_data_type : "depth"  # or "depth"
+
+image_config:
+    IMAGE_CHANNEL_COUNT : 3
+    MEAN_PIXEL : [123.7, 116.8, 103.9]
+
+depth_config:
+    IMAGE_CHANNEL_COUNT : 1
+    MEAN_PIXEL : [0.0]
+
+debug: 0

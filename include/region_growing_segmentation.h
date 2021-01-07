@@ -67,7 +67,7 @@ class RegionGrowingSegmentation {
 	void outlierRemove(int K = 50, float stddev_mul_thresh = 1.0);
 	void normalEstimationKSearch(int K = 30);
 	void normalEstimationRadiusSearch(float radius = 0.02);
-	std::vector<pcl::PointIndices> segmentation(int min_cluster_size = 100, int max_cluster_size = 7000, int nn = 30, float smoothness_threshold = 3.0/180*M_PI, float curvature_threshold = 1.0);
+	std::vector<pcl::PointIndices> segmentation(int min_cluster_size = 100, int max_cluster_size = 50000, int nn = 30, float smoothness_threshold = 3.0/180*M_PI, float curvature_threshold = 1.0);
 
 	pcl::PointIndices getSegmentFromPoint(int index);
 	PointT getCenter(PointCloudT::Ptr cloud_in);

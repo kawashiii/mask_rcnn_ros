@@ -168,8 +168,6 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
     mask_reg.outlierRemove();
     mask_reg.normalEstimationKSearch();
     vector<pcl::PointIndices> mask_reg_indices = mask_reg.segmentation();
-    masked_surface_list.push_back(mask_reg.getSegmentedColoredCloud());
-
     if (mask_reg_indices.size() == 0) {
         ROS_WARN("Couldn't find any surface");
         mask_rcnn_ros::MaskedObjectAttributes moas_msg;
@@ -177,6 +175,7 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
         moas_msg_list.push_back(moas_msg);
 	return;
     }
+    masked_surface_list.push_back(mask_reg.getSegmentedColoredCloud());
     
     ROS_INFO("%d surfaces found", (int)mask_reg_indices.size());
     vector<PointCloudT::Ptr> cloud_list;
@@ -215,6 +214,8 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	    moas_msg.centers.push_back(moas_tmp_msg.centers[0]);
 	    moas_msg.normals.push_back(moas_tmp_msg.normals[0]);
 	    moas_msg.areas.push_back(moas_tmp_msg.areas[0]);
+	    moas_msg.long_sides.push_back(moas_tmp_msg.long_sides[0]);
+	    moas_msg.short_sides.push_back(moas_tmp_msg.short_sides[0]);
 	    moas_msg.corners.push_back(moas_tmp_msg.corners[0]);
 	    moas_msg.x_axes.push_back(moas_tmp_msg.x_axes[0]);
 	    moas_msg.y_axes.push_back(moas_tmp_msg.y_axes[0]);
@@ -315,10 +316,17 @@ MaskRegionGrowingNode::build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr n
     tmp.z = center.point.z + x_axis.vector.z * moi.max_point_OBB.x + y_axis.vector.z * moi.max_point_OBB.y;
     corner.polygon.points.push_back(tmp);
 
+    float long_side = abs(moi.max_point_OBB.x - moi.min_point_OBB.x);
+    float short_side = abs(moi.max_point_OBB.y - moi.min_point_OBB.y);
+    ROS_INFO("  Long side is %f mm.", long_side*1000);
+    ROS_INFO("  Short side is %f mm.", short_side*1000);
+	
     mask_rcnn_ros::MaskedObjectAttributes moas_msg;
     moas_msg.centers.push_back(center);
     moas_msg.normals.push_back(normal);
     moas_msg.areas.push_back(area);
+    moas_msg.long_sides.push_back(long_side);
+    moas_msg.short_sides.push_back(short_side);
     moas_msg.corners.push_back(corner);
     moas_msg.x_axes.push_back(x_axis);
     moas_msg.y_axes.push_back(y_axis);
@@ -382,6 +390,7 @@ MaskRegionGrowingNode::publishMarkerArray()
     int count = 0;
     for (int i = 0; i < moas_msg_list.size(); i++)
     {
+        if (moas_msg_list[i].surface_count == 0) continue;
         for (int j = 0; j < moas_msg_list[i].centers.size(); j++)
 	{
             geometry_msgs::PointStamped center = moas_msg_list[i].centers[j];
