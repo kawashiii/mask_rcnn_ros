@@ -49,7 +49,6 @@ RegionGrowingSegmentation::createPointCloudFromDepthMap(cv::Mat depth, cv::Mat c
     double fy = cameraMatrix.at<double>(1, 1);
     double cx = cameraMatrix.at<double>(0, 2);
     double cy = cameraMatrix.at<double>(1, 2);
-
     point_cloud->clear();
     point_cloud->width = width;
     point_cloud->height = height;
@@ -99,6 +98,22 @@ void
 RegionGrowingSegmentation::transformPointCloud(Eigen::Matrix4f matrix)
 {
     pcl::transformPointCloud(*point_cloud, *point_cloud, matrix);
+}
+
+void
+RegionGrowingSegmentation::passThroughFilter(float x_min, float x_max, float y_min, float y_max, float z_min, float z_max)
+{
+    pcl::PassThrough<PointT> pass;
+    pass.setInputCloud(point_cloud);
+    pass.setFilterFieldName("x");
+    pass.setFilterLimits(x_min, x_max);
+    pass.filter(*point_cloud);
+    pass.setFilterFieldName("y");
+    pass.setFilterLimits(y_min, y_max);
+    pass.filter(*point_cloud);
+    pass.setFilterFieldName("z");
+    pass.setFilterLimits(z_min, z_max);
+    pass.filter(*point_cloud);
 }
 
 void

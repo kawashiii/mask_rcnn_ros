@@ -9,6 +9,7 @@
     image_topic : "/phoxi_camera/rgb_texture_rect"
     depth_topic : "/phoxi_camera/depth_map_rect"
     normal_topic : "/phoxi_camera/normal_map_rect"
+    external_camera_image_topic : "/phoxi_camera/external_camera_texture"
     
 bin_frame_id : "container"
 

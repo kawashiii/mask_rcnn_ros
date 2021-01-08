@@ -4,6 +4,7 @@ import sys
 import copy
 import time
 import math
+import datetime
 import threading
 import numpy as np
 
@@ -84,6 +85,16 @@ class MaskRCNNNode(object):
             size = height, width, 1
         self.dummy_image = np.zeros(size, dtype=np.uint8)
         rospy.loginfo("Acquired camera info")
+
+        # Create log dir
+        today = datetime.datetime.now()
+        log_dir = os.path.join(ROOT_DIR, "logs/" + str(today.year) + str(today.month).zfill(2) + str(today.day).zfill(2))
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        dir_num = len(os.listdir(log_dir))
+        self.log_dir = os.path.join(log_dir, str(dir_num))
+        os.makedirs(self.log_dir)
+        self.save_id = 0
 
         if self.param["debug"]:
             rospy.logwarn("'mask_rcnn' node is Debug Mode")
@@ -169,7 +180,8 @@ class MaskRCNNNode(object):
         # Get Image
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        image_topic = self.param[self.param["input_camera"]]["image_topic"]
+        #image_topic = self.param[self.param["input_camera"]]["image_topic"]
+        image_topic = self.param["3d_camera"]["external_camera_image_topic"]
         depth_topic = self.param[self.param["input_camera"]]["depth_topic"]
         if self.param["debug"]:
             image_topic = "/debug" + image_topic
@@ -183,6 +195,9 @@ class MaskRCNNNode(object):
         # Convert Image
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
+        cv2.imwrite(self.log_dir + "/" + str(self.save_id).zfill(4) + ".png", np_image)
+        np.save(self.log_dir + "/" + str(self.save_id).zfill(4), np_depth)
+        self.save_id += 1
         self.image = np.copy(np_image)
         
         # Run Detection
@@ -233,6 +248,9 @@ class MaskRCNNNode(object):
         # Convert Image
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
+        cv2.imwrite(self.log_dir + "/" + str(self.save_id).zfill(4) + ".png", np_image)
+        np.save(self.log_dir + "/" + str(self.save_id).zfill(4), np_depth)
+        self.save_id += 1
         self.image = np.copy(np_image)
         
         # Run Detection

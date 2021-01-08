@@ -5,6 +5,7 @@ using namespace std;
 MaskRegionGrowingNode::MaskRegionGrowingNode():
     timeout(5.0),
     is_service_called(false),
+    is_subscribed_depth(false),
     frame_id("basler_ace_rgb_sensor_calibrated"),
     x_min(-0.298), x_max(0.298), y_min(-0.200), y_max(0.200), z_min(0.005), z_max(0.300)
 {
@@ -105,13 +106,20 @@ MaskRegionGrowingNode::callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg
     //pcl::copyPointCloud(*(scene_reg.getPointCloud()), *input_scene);
     input_scene = scene_reg.getPointCloud();
     //scene_reg.transformPointCloud(matrix_camera_to_container);
+    scene_reg.passThroughFilter(-0.4, 0.4, -0.3, 0.3, 1.25, 1.8); 
     scene_reg.downSampling();
     scene_reg.outlierRemove();
+
+    scene_reg.normalEstimationKSearch();
+    vector<pcl::PointIndices> scene_reg_indices = scene_reg.segmentation();
+    scene_surface_list.push_back(scene_reg.getSegmentedColoredCloud());
 
     ros::WallTime end_process_time = ros::WallTime::now();
     double execution_process_time = (end_process_time - start_process_time).toNSec() * 1e-9;
     ROS_INFO("PreProcessing time(s): %.3f", execution_process_time);
     ROS_INFO("Finished Preprocessing");
+
+    is_subscribed_depth = true;
 }
 
 bool
@@ -127,9 +135,9 @@ MaskRegionGrowingNode::callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface:
     markers_list = {};
 
     // first compute scene region growing segmentation
-    scene_reg.normalEstimationKSearch();
-    vector<pcl::PointIndices> scene_reg_indices = scene_reg.segmentation();
-    scene_surface_list.push_back(scene_reg.getSegmentedColoredCloud());
+    // scene_reg.normalEstimationKSearch();
+    // vector<pcl::PointIndices> scene_reg_indices = scene_reg.segmentation();
+    // scene_surface_list.push_back(scene_reg.getSegmentedColoredCloud());
 
     int count = 0;
     mask_msgs = req.masks;
@@ -156,6 +164,7 @@ MaskRegionGrowingNode::callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface:
     ROS_INFO("Total Service time(s): %.3f", execution_process_time);
 
     is_service_called = true;
+    is_subscribed_depth = false;
     return true;
 }
 
@@ -185,6 +194,14 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	PointCloudT::Ptr segmented_point_cloud = mask_reg.getPointCloud(*i);
 	cloud_list.push_back(segmented_point_cloud);
 	ROS_INFO("  %d points surface", (int)segmented_point_cloud->points.size());
+    }
+
+    ros::Rate loop_rate(10);
+    int count = 0;
+    while (!is_subscribed_depth) {
+        count += 1;
+	if (count > 50) throw std::exception();
+        loop_rate.sleep();
     }
 
     if (cloud_list.size() > 1) {

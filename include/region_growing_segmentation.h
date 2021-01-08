@@ -63,6 +63,7 @@ class RegionGrowingSegmentation {
 	NormalCloudT::Ptr getNormalCloud();
 
 	void transformPointCloud(Eigen::Matrix4f matrix);
+	void passThroughFilter(float x_min, float x_max, float y_min, float y_max, float z_min, float z_max);
         void downSampling(float x_leaf = 0.002, float y_leaf = 0.002, float z_leaf = 0.002);
 	void outlierRemove(int K = 50, float stddev_mul_thresh = 1.0);
 	void normalEstimationKSearch(int K = 30);
