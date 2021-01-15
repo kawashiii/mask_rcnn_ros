@@ -4,6 +4,8 @@ import sys
 import copy
 import time
 import math
+import random
+import colorsys
 import datetime
 import threading
 import numpy as np
@@ -196,7 +198,7 @@ class MaskRCNNNode(object):
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
         cv2.imwrite(self.log_dir + "/" + str(self.save_id).zfill(4) + ".png", np_image)
-        np.save(self.log_dir + "/" + str(self.save_id).zfill(4), np_depth)
+        np.save(self.log_dir + "/" + str(self.save_id).zfill(4) + "_depth", np_depth)
         self.save_id += 1
         self.image = np.copy(np_image)
         
@@ -288,11 +290,13 @@ class MaskRCNNNode(object):
         result_msg.count = 0
 
         self.vis_processed_result = np.copy(self.image)
+        self.vis_processed_result = cv2.cvtColor(cv2.cvtColor(self.vis_processed_result, cv2.COLOR_BGR2GRAY), cv2.COLOR_GRAY2BGR)
         axes_marker_msg = MarkerArray()
         delete_marker = self.delete_all_markers()
         axes_marker_msg.markers.append(delete_marker)
 
         mask_msgs=[]
+        masks = []
         is_rigid_object = True
         
         for i, (y1, x1, y2, x2) in enumerate(self.result['rois']):
@@ -319,21 +323,22 @@ class MaskRCNNNode(object):
 
             mask = self.result['masks'][:,:,i].astype(np.uint8)
             biggest_mask = self.get_biggest_mask(mask)
+            masks.append(biggest_mask)
             mask_msg = self.cv_bridge.cv2_to_imgmsg(biggest_mask, 'mono8')
             mask_msgs.append(mask_msg)
            
             # Draw information to image 
-            id_caption = "ID:" + str(i)
-            class_caption = class_name + " " +  str(round(score, 3))
-            cv2.putText(self.vis_processed_result, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
-            cv2.putText(self.vis_processed_result, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
+            #id_caption = "ID:" + str(i)
+            #class_caption = class_name + " " +  str(round(score, 3))
+            #cv2.putText(self.vis_processed_result, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
+            #cv2.putText(self.vis_processed_result, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
 
-        if len(result_msg.class_names) == 0:
-            self.result_pub.publish(result_msg)
-            self.marker_pub.publish(axes_marker_msg)
+        # if len(result_msg.class_names) == 0:
+        #     self.result_pub.publish(result_msg)
+        #     self.marker_pub.publish(axes_marker_msg)
 
-            rospy.logwarn("No objects could be detected.")
-            return result_msg
+        #     rospy.logwarn("No objects could be detected.")
+        #     return result_msg
 
         try:
             get_masked_surface = rospy.ServiceProxy("/mask_region_growing_node/get_masked_surface", GetMaskedSurface)
@@ -344,10 +349,12 @@ class MaskRCNNNode(object):
 
         for i in range(result_msg.count):
             masked_object_attrs = res.moas_list[i]
+            mask_color = [1.0, 0.0, 0.0]
             if len(masked_object_attrs.centers) == 0:
                 continue
             if not self.check_object_size(masked_object_attrs):
                 rospy.logwarn("Object Id %d is out of gt size", i)
+                mask_color = [0.0, 0.0, 1.0]
                 result_msg.scores[i] = 0.0
             result_msg.x_axes.append(masked_object_attrs.x_axes[0])
             result_msg.y_axes.append(masked_object_attrs.y_axes[0])
@@ -358,6 +365,8 @@ class MaskRCNNNode(object):
             result_msg.centers.append(masked_object_attrs.centers[0])
             result_msg.normals.append(masked_object_attrs.normals[0])
 
+            self.draw_mask(i, masks[i], mask_color)
+            
             center_msg = masked_object_attrs.centers[0]
             normal_msg = masked_object_attrs.normals[0]
           
@@ -384,10 +393,34 @@ class MaskRCNNNode(object):
         contour = contours[0]
         zero_image = np.zeros(mask.shape, dtype=np.uint8)
         ret_mask = cv2.fillPoly(zero_image, [contour], color=(255,255,255))
-        self.vis_processed_result = cv2.fillPoly(self.vis_processed_result, [contour], color=(255,200,255))
 
         return ret_mask
 
+    def draw_mask(self, index, mask, mask_color):
+        alpha = 0.5
+        #brightness = 1.0
+        #hsv = [(i/10, 1, brightness)  for i in range(10)]
+        #colors = list(map(lambda c: colorsys.hsv_to_rgb(*c), hsv))
+        #random.shuffle(colors)
+        #color = colors[0]
+        color = mask_color
+        
+        for c in range(3):
+            self.vis_processed_result[:, :, c] = np.where(mask >= 1, self.vis_processed_result[:, :, c] * (1 - alpha) + alpha * color[c] * 255, self.vis_processed_result[:, :, c])
+        #self.vis_processed_result = cv2.fillPoly(self.vis_processed_result, [contour], color=(255,200,255))
+
+        contours,hierarchy = cv2.findContours(mask, 1, 2)
+        cnt = contours[0]
+        rect = cv2.minAreaRect(cnt)
+        box = cv2.boxPoints(rect)
+        box = np.int0(box)
+        cv2.drawContours(self.vis_processed_result,[box],0,(0,255,0),4)
+
+        id_caption = "ID:" + str(index)
+        caption_location = np.int0(np.sum(box, axis=0)/4)
+        cv2.putText(self.vis_processed_result, id_caption, (caption_location[0]-20, caption_location[1]), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,255,255), 2, cv2.LINE_AA) 
+            
+        
     def check_object_size(self, attr):
         long_side = attr.long_sides[0] * 1000
         short_side = attr.short_sides[0] * 1000
@@ -400,7 +433,7 @@ class MaskRCNNNode(object):
 
         if gt_size[1]*0.8 < short_side < gt_size[1]*1.1 or gt_size[2]*0.8 < short_side < gt_size[2]*1.1:
             is_short_size = True
-
+            
         return is_long_size and is_short_size
            
         
