@@ -1,9 +1,5 @@
 bool is_rigid_object
 sensor_msgs/Image[] masks
+float32[] masked_depth_std
 ---
-#Centers[] centers_list
-#Normals[] normals_list
-#Areas[] areas_list
 MaskedObjectAttributes[] moas_list
-#geometry_msgs/PointStamped[] centers
-#geometry_msgs/Vector3Stamped[] normals

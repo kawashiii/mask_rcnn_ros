@@ -201,6 +201,7 @@ class MaskRCNNNode(object):
         np.save(self.log_dir + "/" + str(self.save_id).zfill(4) + "_depth", np_depth)
         self.save_id += 1
         self.image = np.copy(np_image)
+        self.depth = np.copy(np_depth)
         
         # Run Detection
         input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
@@ -254,6 +255,7 @@ class MaskRCNNNode(object):
         np.save(self.log_dir + "/" + str(self.save_id).zfill(4), np_depth)
         self.save_id += 1
         self.image = np.copy(np_image)
+        self.depth = np.copy(np_depth)
         
         # Run Detection
         input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
@@ -295,6 +297,7 @@ class MaskRCNNNode(object):
         delete_marker = self.delete_all_markers()
         axes_marker_msg.markers.append(delete_marker)
 
+        masked_depth_std_msg = []
         mask_msgs=[]
         masks = []
         is_rigid_object = True
@@ -326,6 +329,10 @@ class MaskRCNNNode(object):
             masks.append(biggest_mask)
             mask_msg = self.cv_bridge.cv2_to_imgmsg(biggest_mask, 'mono8')
             mask_msgs.append(mask_msg)
+
+            index_for_std = np.bitwise_and(mask>0.5, self.depth>0.0)
+            masked_depth_std = np.std(self.depth[index_for_std])
+            masked_depth_std_msg.append(masked_depth_std)
            
             # Draw information to image 
             #id_caption = "ID:" + str(i)
@@ -341,29 +348,37 @@ class MaskRCNNNode(object):
         #     return result_msg
         try:
             get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
-            res = get_masked_surface(is_rigid_object, mask_msgs)
+            res = get_masked_surface(is_rigid_object, mask_msgs, masked_depth_std_msg)
         except rospy.ServiceException as e:
             rospy.logerr("Service calll failed: ",e)
 
-
+        final_result_msg = MaskRCNNMsg()
+        final_result_msg.header.stamp = rospy.Time.now()
+        final_result_msg.header.frame_id = self.param[self.param["input_camera"]]["frame_id"]
+        final_result_msg.count = 0
         for i in range(result_msg.count):
             masked_object_attrs = res.moas_list[i]
             mask_color = [1.0, 0.0, 0.0]
-            if len(masked_object_attrs.centers) == 0:
+            if masked_object_attrs.surface_count == 0:
                 continue
+
+            final_result_msg.ids.append(final_result_msg.count)
+            final_result_msg.count += 1
+            final_result_msg.x_axes.append(masked_object_attrs.x_axes[0])
+            final_result_msg.y_axes.append(masked_object_attrs.y_axes[0])
+            final_result_msg.z_axes.append(masked_object_attrs.z_axes[0])
+            final_result_msg.axes.append(masked_object_attrs.x_axes[0])
+            final_result_msg.polygons.append(masked_object_attrs.corners[0])
+            final_result_msg.areas.append(masked_object_attrs.areas[0])
+            final_result_msg.centers.append(masked_object_attrs.centers[0])
+            final_result_msg.normals.append(masked_object_attrs.normals[0])
             if not self.check_object_size(masked_object_attrs):
                 rospy.logwarn("Object Id %d is out of gt size", i)
                 mask_color = [0.0, 0.0, 1.0]
-                result_msg.scores[i] = 0.0
-            result_msg.x_axes.append(masked_object_attrs.x_axes[0])
-            result_msg.y_axes.append(masked_object_attrs.y_axes[0])
-            result_msg.z_axes.append(masked_object_attrs.z_axes[0])
-            result_msg.axes.append(masked_object_attrs.x_axes[0])
-            result_msg.polygons.append(masked_object_attrs.corners[0])
-            result_msg.areas.append(masked_object_attrs.areas[0])
-            result_msg.centers.append(masked_object_attrs.centers[0])
-            result_msg.normals.append(masked_object_attrs.normals[0])
-
+                final_result_msg.scores.append(0.0)
+            else:
+                final_result_msg.scores.append(result_msg.scores[i])
+            
             self.draw_mask(i, masks[i], mask_color)
             
             center_msg = masked_object_attrs.centers[0]
@@ -375,12 +390,12 @@ class MaskRCNNNode(object):
             axes_marker_msg.markers.append(text_marker)
 
         
-        self.result_pub.publish(result_msg)
+        self.result_pub.publish(final_result_msg)
         self.marker_pub.publish(axes_marker_msg)
 
         rospy.loginfo("Published msg completely")
 
-        return result_msg
+        return final_result_msg
 
     def get_biggest_mask(self, mask):
         ret, thresh = cv2.threshold(mask, 0.5, 1.0, cv2.THRESH_BINARY)

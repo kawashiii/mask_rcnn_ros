@@ -1,4 +1,4 @@
-#include "mask_region_growing_node.h"
+#include "mask_region_growing.h"
 
 using namespace std;
 
@@ -147,10 +147,11 @@ MaskRegionGrowingNode::callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface:
         cv_bridge::CvImagePtr cv_ptr;
 	cv_ptr = cv_bridge::toCvCopy(mask_msg, "8UC1");
 	cv::Mat mask = cv_ptr->image.clone();
+        float masked_depth_std = req.masked_depth_std[count];
 
 	ROS_INFO("ID:%d", count);
 	if (is_rigid_object)
-	    maskedRegionGrowing(mask);
+	    maskedRegionGrowing(mask, masked_depth_std);
 	//else
 	    //computerCenter(mask);
 
@@ -169,31 +170,40 @@ MaskRegionGrowingNode::callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface:
 }
 
 void
-MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
+MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask, float masked_depth_std)
 {
+    vector<PointCloudT::Ptr> cloud_list;
     RegionGrowingSegmentation mask_reg;
     mask_reg.createPointCloudFromMaskedDepthMap(depth, mask, cameraMatrix, 1000.0);
     mask_reg.downSampling();
     mask_reg.outlierRemove();
     mask_reg.normalEstimationKSearch();
-    vector<pcl::PointIndices> mask_reg_indices = mask_reg.segmentation();
-    if (mask_reg_indices.size() == 0) {
-        ROS_WARN("Couldn't find any surface");
-        mask_rcnn_ros::MaskedObjectAttributes moas_msg;
-        moas_msg.surface_count = 0;
-        moas_msg_list.push_back(moas_msg);
-	return;
-    }
-    masked_surface_list.push_back(mask_reg.getSegmentedColoredCloud());
     
-    ROS_INFO("%d surfaces found", (int)mask_reg_indices.size());
-    vector<PointCloudT::Ptr> cloud_list;
-    vector<PointT> center_list;
-    for (auto i = mask_reg_indices.begin(); i != mask_reg_indices.end(); i++)
+    if (masked_depth_std > 10.0)
     {
-	PointCloudT::Ptr segmented_point_cloud = mask_reg.getPointCloud(*i);
-	cloud_list.push_back(segmented_point_cloud);
-	ROS_INFO("  %d points surface", (int)segmented_point_cloud->points.size());
+        vector<pcl::PointIndices> mask_reg_indices = mask_reg.segmentation();
+        if (mask_reg_indices.size() == 0) {
+            ROS_WARN("Couldn't find any surface");
+            mask_rcnn_ros::MaskedObjectAttributes moas_msg;
+            moas_msg.surface_count = 0;
+            moas_msg_list.push_back(moas_msg);
+	    return;
+        }
+        masked_surface_list.push_back(mask_reg.getSegmentedColoredCloud());
+    
+        ROS_INFO("  %d surfaces found", (int)mask_reg_indices.size());
+        for (auto i = mask_reg_indices.begin(); i != mask_reg_indices.end(); i++)
+        {
+            PointCloudT::Ptr segmented_point_cloud = mask_reg.getPointCloud(*i);
+            cloud_list.push_back(segmented_point_cloud);
+            ROS_INFO("  %d points surface", (int)segmented_point_cloud->points.size());
+        }
+    }
+    else
+    {
+        PointCloudT::Ptr pd = mask_reg.getPointCloud();
+        //masked_surface_list.push_back(pd);
+        cloud_list.push_back(pd);
     }
 
     ros::Rate loop_rate(10);
@@ -214,7 +224,7 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	    int center_index = scene_reg.getNeighborPointIndex(center);
 	    pcl::PointIndices cluster = scene_reg.getSegmentFromPoint(center_index);
 	    if (cluster.indices.size() == 0) {
-	        ROS_WARN("Couldn't any surface where the center point belongs to");
+	        ROS_WARN("  Couldn't any surface where the center point belongs to");
 	        continue;
 	    }
 	    
@@ -227,6 +237,10 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	    MomentOfInertia moi = scene_reg.getMomentOfInertia(segmented_point_cloud);
 
 	    mask_rcnn_ros::MaskedObjectAttributes moas_tmp_msg = build_moa_msg(scene_point_cloud, scene_normal_cloud, center_index, area, moi);
+            if (!checkPointRegion(moas_tmp_msg.centers[0].point)) {
+                ROS_WARN("  This point is outside of container");
+                continue;
+            }   
 
 	    moas_msg.centers.push_back(moas_tmp_msg.centers[0]);
 	    moas_msg.normals.push_back(moas_tmp_msg.normals[0]);
@@ -237,10 +251,7 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
 	    moas_msg.x_axes.push_back(moas_tmp_msg.x_axes[0]);
 	    moas_msg.y_axes.push_back(moas_tmp_msg.y_axes[0]);
 	    moas_msg.z_axes.push_back(moas_tmp_msg.z_axes[0]);  
-            if (checkPointRegion(moas_tmp_msg.centers[0].point))
-                moas_msg.surface_count += 1;
-	    else
-                ROS_WARN("This point is outside of container");	    
+            moas_msg.surface_count += 1;
 	}
 	moas_msg_list.push_back(moas_msg);
 
@@ -255,12 +266,14 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask)
         
         mask_rcnn_ros::MaskedObjectAttributes moas_msg;
 	moas_msg = build_moa_msg(mask_point_cloud, mask_normal_cloud, center_index, area, moi);
-	moas_msg.surface_count = 0;
-        if (checkPointRegion(moas_msg.centers[0].point))
-            moas_msg.surface_count += 1;
-        else
-            ROS_WARN("This point is outside of container");	    
-	
+        if (checkPointRegion(moas_msg.centers[0].point)) {
+            moas_msg.surface_count = 1;
+        }
+        else {
+            moas_msg = {};
+	    moas_msg.surface_count = 0;
+            ROS_WARN("  This point is outside of container");	    
+	}
 	moas_msg_list.push_back(moas_msg);
     }
 
@@ -408,7 +421,7 @@ MaskRegionGrowingNode::publishMarkerArray()
     for (int i = 0; i < moas_msg_list.size(); i++)
     {
         if (moas_msg_list[i].surface_count == 0) continue;
-        for (int j = 0; j < moas_msg_list[i].centers.size(); j++)
+        for (int j = 0; j < moas_msg_list[i].surface_count; j++)
 	{
             geometry_msgs::PointStamped center = moas_msg_list[i].centers[j];
             geometry_msgs::Vector3Stamped x_axis = moas_msg_list[i].x_axes[j];
