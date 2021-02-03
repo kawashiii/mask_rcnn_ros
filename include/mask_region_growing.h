@@ -1,5 +1,5 @@
-#ifndef MASK_REGION_GROWING_NODE_H
-#define MASK_REGION_GROWING_NODE_H
+#ifndef MASK_REGION_GROWING_H
+#define MASK_REGION_GROWING_H
 
 
 //ROS
@@ -33,7 +33,7 @@ class MaskRegionGrowingNode {
 	void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg);
 	bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask_rcnn_ros::GetMaskedSurface::Response &res);
 
-        void maskedRegionGrowing(cv::Mat mask);
+        void maskedRegionGrowing(cv::Mat mask, float masked_depth_std);
 	mask_rcnn_ros::MaskedObjectAttributes build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr normal_cloud, int center_index, float area, MomentOfInertia moi);
 
 	bool checkPointRegion(geometry_msgs::Point point);
