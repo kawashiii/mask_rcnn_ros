@@ -18,8 +18,8 @@
 #include <geometry_msgs/PolygonStamped.h>
 #include "region_growing_segmentation.h"
 
-#include "mask_rcnn_ros/GetMaskedSurface.h"
-#include "mask_rcnn_ros/MaskedObjectAttributes.h"
+#include "mask_rcnn_ros_msgs/GetMaskedSurface.h"
+#include "mask_rcnn_ros_msgs/MaskedObjectAttributes.h"
 
 class MaskRegionGrowingNode {
     public:
@@ -31,10 +31,10 @@ class MaskRegionGrowingNode {
         void markerInitialization();
 
 	void callbackDepth(const sensor_msgs::ImageConstPtr& depth_msg);
-	bool callbackGetMaskedSurface(mask_rcnn_ros::GetMaskedSurface::Request &req, mask_rcnn_ros::GetMaskedSurface::Response &res);
+	bool callbackGetMaskedSurface(mask_rcnn_ros_msgs::GetMaskedSurface::Request &req, mask_rcnn_ros_msgs::GetMaskedSurface::Response &res);
 
         void maskedRegionGrowing(cv::Mat mask, float masked_depth_std);
-	mask_rcnn_ros::MaskedObjectAttributes build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr normal_cloud, int center_index, float area, MomentOfInertia moi);
+	mask_rcnn_ros_msgs::MaskedObjectAttributes build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr normal_cloud, int center_index, float area, MomentOfInertia moi);
 
 	bool checkPointRegion(geometry_msgs::Point point);
 	void publishPointCloud();
@@ -101,7 +101,7 @@ class MaskRegionGrowingNode {
 	std::vector<PointT> raw_center_list;
 	std::vector<PointCloudColorT::Ptr> scene_surface_list;
 	std::vector<PointCloudColorT::Ptr> masked_surface_list;
-	std::vector<mask_rcnn_ros::MaskedObjectAttributes> moas_msg_list;
+	std::vector<mask_rcnn_ros_msgs::MaskedObjectAttributes> moas_msg_list;
 	visualization_msgs::MarkerArray markers_list;
 };
 

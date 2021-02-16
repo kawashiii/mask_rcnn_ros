@@ -24,8 +24,8 @@ from geometry_msgs.msg import Point
 from geometry_msgs.msg import PointStamped
 from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
-from mask_rcnn_ros.msg import MaskRCNNMsg
-from mask_rcnn_ros.srv import *
+from mask_rcnn_ros_msgs.msg import *
+from mask_rcnn_ros_msgs.srv import *
 #from region_growing_segmentation.srv import *
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
