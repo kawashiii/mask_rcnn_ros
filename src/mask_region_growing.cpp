@@ -4,6 +4,7 @@ using namespace std;
 
 MaskRegionGrowingNode::MaskRegionGrowingNode():
     timeout(5.0),
+    debug_mode(0),
     is_service_called(false),
     is_subscribed_depth(false),
     frame_id("basler_ace_rgb_sensor_calibrated"),
@@ -11,7 +12,18 @@ MaskRegionGrowingNode::MaskRegionGrowingNode():
 {
     ROS_INFO("Initialized Node");
 
-    depth_sub = nh.subscribe<sensor_msgs::Image>("/phoxi_camera/aligned_depth_map_rect", 1, &MaskRegionGrowingNode::callbackDepth, this);
+    if (nh.hasParam("/mask_rcnn/debug_mode"))
+    {
+        nh.getParam("/mask_rcnn/debug_mode", debug_mode);
+        if (debug_mode) {
+            ROS_WARN("'mask_region_growing node' is Debug Mode");
+        }
+    }
+
+    std::string depth_topic = "/phoxi_camera/aligned_depth_map_rect";
+    if (debug_mode)
+        depth_topic = "/debug" + depth_topic;
+    depth_sub = nh.subscribe<sensor_msgs::Image>(depth_topic, 1, &MaskRegionGrowingNode::callbackDepth, this);
 
     get_masked_surface_srv = nh.advertiseService(ros::this_node::getName() + "/get_masked_surface", &MaskRegionGrowingNode::callbackGetMaskedSurface, this);
 

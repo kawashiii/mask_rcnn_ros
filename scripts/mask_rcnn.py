@@ -26,10 +26,10 @@ from visualization_msgs.msg import Marker
 from visualization_msgs.msg import MarkerArray
 from mask_rcnn_ros_msgs.msg import *
 from mask_rcnn_ros_msgs.srv import *
-#from region_growing_segmentation.srv import *
 
 sys.path.remove('/opt/ros/kinetic/lib/python2.7/dist-packages')
 import cv2
+import lab_config
 from math import atan2, cos, sin, sqrt, pi
 from cv_bridge import CvBridge
 
@@ -42,49 +42,32 @@ from keras.backend import tensorflow_backend as backend
 ROOT_DIR = os.path.abspath(roslib.packages.get_pkg_dir('mask_rcnn_ros'))
 MODEL_DIR = os.path.join(ROOT_DIR, "models/")
 
-class MaskRCNNConfig(Config):
-    NAME = "lab"
-    IMAGES_PER_GPU = 1
-    GPU_COUNT = 1
-    NUM_CLASSES = 2
-    DETECTION_MIN_CONFIDENCE = 0.7
-    DETECTION_NMS_THRESHOLD = 0.3
-    def __init__(self, channel, mean_pixel):
-        self.IMAGE_CHANNEL_COUNT = channel
-        self.MEAN_PIXEL = mean_pixel
-        super().__init__()
-
 class MaskRCNNNode(object):
     def __init__(self):
-        self.param, _ = rosparam.load_file(ROOT_DIR + "/config/mask_rcnn.yaml")[0]
-        self.object_attributes, _ = rosparam.load_file(ROOT_DIR + "/config/object_attributes.yaml")[0]
-        
         self.cv_bridge = CvBridge()
         self.is_service_called = False
         self.target_object = "beads"
+        self.class_names = lab_config.CLASS_NAMES
+        self.object_attributes, _ = rosparam.load_file(ROOT_DIR + "/config/object_attributes.yaml")[0]
 
         # Create model object in inference mode.
-        channel = self.param[self.param["input_data_type"]+"_config"]["IMAGE_CHANNEL_COUNT"]
-        mean_pixel = np.array(self.param[self.param["input_data_type"]+"_config"]["MEAN_PIXEL"])
-        config = MaskRCNNConfig(channel, mean_pixel)
-        model_file = os.path.join(MODEL_DIR, "mask_rcnn_lab_choice.h5")
-        if self.param["input_data_type"] == "depth":
-            model_file = os.path.join(MODEL_DIR, "mask_rcnn_lab_depth.h5")        
-
+        config = lab_config.LabConfig()
+        model_file = os.path.join(MODEL_DIR, lab_config.TRAINED_MODEL)
         self.model = modellib.MaskRCNN(mode="inference", model_dir="", config=config)
         self.model.load_weights(model_file, by_name=True)
         self.model.keras_model._make_predict_function()
-        self.class_names = ['BG', "obj"]
 
         # Set camera topic
         rospy.loginfo("Waiting camera info topic")
-        camera_info_topic = self.param[self.param["input_camera"]]["camera_info_topic"]
-        camera_info = rospy.wait_for_message(camera_info_topic, CameraInfo, 10)
+        camera_info = rospy.wait_for_message(lab_config.CAMERA_INFO_TOPIC, CameraInfo, 10)
+        camera_matrix = np.array(camera_info.K).reshape([3, 3])
+        self.fx = camera_matrix[0][0]
+        self.fy = camera_matrix[1][1]
+        self.cx = camera_matrix[0][2]
+        self.cy = camera_matrix[1][2]
         width = camera_info.width
         height = camera_info.height
-        size = height, width, 3
-        if self.param["input_data_type"] == "depth":
-            size = height, width, 1
+        size = height, width, config.IMAGE_CHANNEL_COUNT
         self.dummy_image = np.zeros(size, dtype=np.uint8)
         rospy.loginfo("Acquired camera info")
 
@@ -98,9 +81,18 @@ class MaskRCNNNode(object):
         os.makedirs(self.log_dir)
         self.save_id = 0
 
-        if self.param["debug"]:
+        # for change depth coordinate from camera to container
+        self.mesh_width, self.mesh_height = np.meshgrid(np.arange(width), np.arange(height))
+        self.trans = np.asarray([-0.05529858, -0.03283987, 1.58937867])
+        self.rot = np.asarray([[-0.99975764, -0.01042886, -0.01938806],
+                               [-0.01002908,  0.99973742, -0.02060383],
+                               [ 0.01959784, -0.02040439, -0.99959971]])
+
+        self.debug_mode = 0      
+        if rospy.has_param("/mask_rcnn/debug_mode") and rospy.get_param("/mask_rcnn/debug_mode"):
             rospy.logwarn("'mask_rcnn' node is Debug Mode")
-    
+            self.debug_mode = 1
+
     def run(self):
         # Define Publisher
         self.result_pub = rospy.Publisher(rospy.get_name() + '/MaskRCNNMsg', MaskRCNNMsg, queue_size=1, latch=True)
@@ -182,10 +174,9 @@ class MaskRCNNNode(object):
         # Get Image
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        #image_topic = self.param[self.param["input_camera"]]["image_topic"]
-        image_topic = self.param["3d_camera"]["external_camera_image_topic"]
-        depth_topic = self.param[self.param["input_camera"]]["depth_topic"]
-        if self.param["debug"]:
+        image_topic = lab_config.IMAGE_TOPIC
+        depth_topic = lab_config.DEPTH_TOPIC
+        if self.debug_mode:
             image_topic = "/debug" + image_topic
             depth_topic = "/debug" + depth_topic
         image_msg = rospy.wait_for_message(image_topic, Image, timeout)
@@ -201,20 +192,28 @@ class MaskRCNNNode(object):
         np.save(self.log_dir + "/" + str(self.save_id).zfill(4) + "_depth", np_depth)
         self.save_id += 1
         self.image = np.copy(np_image)
+        
+        if lab_config.DEPTH_COORDINATE == "container":
+            height, width = np_depth.shape
+            xyz_image = np.zeros((height, width, 3), np.float32)
+            xyz_image[...,2] = np_depth/1000
+            xyz_image[...,0] = (self.mesh_width - self.cx) * xyz_image[...,2] / self.fx
+            xyz_image[...,1] = (self.mesh_height - self.cy) * xyz_image[...,2] / self.fy
+            xyz_image= (np.dot(self.rot, xyz_image.reshape(-1,3).T).T.reshape(height, width, 3) + self.trans) * 1000
+            np_depth = (np.copy(xyz_image[...,2])).astype(np.float32)
         self.depth = np.copy(np_depth)
         
+        # Prepare Input Data to Detect
+        input_data = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
+        input_data = lab_config.NORMALIZE_TEXTURE(input_data)
+        if lab_config.INPUT_DATA_TYPE == "depth":
+            input_data = np_depth.reshape([np_depth.shape[0], np_depth.shape[1], 1])
+            input_data = lab_config.NORMALIZE_DEPTH(input_data)
+
         # Run Detection
-        input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
-        if self.param["input_data_type"] == "depth":
-            input_image = np.copy(np_depth)
-            input_image = (input_image - 1000) / (2000 - 1000)
-            input_image[np.where(input_image < 0.0)] = 0.0
-            input_image[np.where(input_image > 1.0)] = 1.0
-            input_image = np.reshape(input_image, [input_image.shape[0], input_image.shape[1], 1])
-            
         start_detection = time.time() 
         rospy.loginfo("Detecting ...")
-        results = self.model.detect([input_image], verbose=0)
+        results = self.model.detect([input_data], verbose=0)
         end_detection = time.time()
         detection_time = end_detection - start_detection
         rospy.loginfo("%s[s] (Detection time)", round(detection_time, 3))
@@ -236,9 +235,9 @@ class MaskRCNNNode(object):
         # Get Image
         rospy.loginfo("Waiting frame ...")
         timeout = 10
-        image_topic = self.param[self.param["input_camera"]]["image_topic"]
-        depth_topic = self.param[self.param["input_camera"]]["depth_topic"]
-        if self.param["debug"]:
+        image_topic = lab_config.IMAGE_TOPIC
+        depth_topic = lab_config.DEPTH_TOPIC
+        if self.debug_mode:
             image_topic = "/debug" + image_topic
             depth_topic = "/debug" + depth_topic
 
@@ -255,20 +254,28 @@ class MaskRCNNNode(object):
         np.save(self.log_dir + "/" + str(self.save_id).zfill(4), np_depth)
         self.save_id += 1
         self.image = np.copy(np_image)
+
+        if lab_config.DEPTH_COORDINATE == "container":
+            height, width = np_depth.shape
+            xyz_image = np.zeros((height, width, 3), np.float32)
+            xyz_image[...,2] = np_depth/1000
+            xyz_image[...,0] = (self.mesh_width - self.cx) * xyz_image[...,2] / self.fx
+            xyz_image[...,1] = (self.mesh_height - self.cy) * xyz_image[...,2] / self.fy
+            xyz_image= (np.dot(self.rot, xyz_image.reshape(-1,3).T).T.reshape(height, width, 3) + self.trans) * 1000
+            np_depth = (np.copy(xyz_image[...,2])).astype(np.float32)
+
         self.depth = np.copy(np_depth)
         
         # Run Detection
-        input_image = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
-        if self.param["input_data_type"] == "depth":
-            input_image = np.copy(np_depth)
-            input_image = (input_image - 1000) / (2000 - 1000)
-            input_image[np.where(input_image < 0.0)] = 0.0
-            input_image[np.where(input_image > 1.0)] = 1.0
-            input_image = np.reshape(input_image, [input_image.shape[0], input_image.shape[1], 1])
-            
+        input_data = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
+        input_data = lab_config.NORMALIZE_TEXTURE(input_data)
+        if lab_config.INPUT_DATA_TYPE == "depth":
+            input_data = np_depth.reshape([np_depth.shape[0], np_depth.shape[1], 1])
+            input_data = lab_config.NORMALIZE_DEPTH(input_data)
+        
         start_detection = time.time() 
         rospy.loginfo("Detecting ...")
-        results = self.model.detect([input_image], verbose=0)
+        results = self.model.detect([input_data], verbose=0)
         end_detection = time.time()
         detection_time = end_detection - start_detection
         rospy.loginfo("%s[s] (Detection time)", round(detection_time, 3))
@@ -288,7 +295,7 @@ class MaskRCNNNode(object):
         rospy.loginfo("Building msg ...")
         result_msg = MaskRCNNMsg()
         result_msg.header.stamp = rospy.Time.now()
-        result_msg.header.frame_id = self.param[self.param["input_camera"]]["frame_id"]
+        result_msg.header.frame_id = lab_config.FRAME_ID
         result_msg.count = 0
 
         self.vis_processed_result = np.copy(self.image)
@@ -354,7 +361,7 @@ class MaskRCNNNode(object):
 
         final_result_msg = MaskRCNNMsg()
         final_result_msg.header.stamp = rospy.Time.now()
-        final_result_msg.header.frame_id = self.param[self.param["input_camera"]]["frame_id"]
+        final_result_msg.header.frame_id = lab_config.FRAME_ID
         final_result_msg.count = 0
         for i in range(result_msg.count):
             masked_object_attrs = res.moas_list[i]

@@ -1,4 +1,5 @@
 <launch>
+    <param name="/mask_rcnn/debug_mode" value="0"/>
     <node pkg="mask_rcnn_ros" name="mask_rcnn" type="mask_rcnn.py" output="screen"/>
     <node pkg="mask_rcnn_ros" name="mask_region_growing" type="mask_region_growing" output="screen"/>
 </launch>

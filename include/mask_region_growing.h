@@ -84,6 +84,7 @@ class MaskRegionGrowingNode {
 	
 	std::vector<sensor_msgs::Image> mask_msgs;
 	cv::Mat depth;
+        int debug_mode;
         bool is_subscribed_depth;
 	bool is_service_called;
 
