@@ -18,6 +18,7 @@
 #include <geometry_msgs/PolygonStamped.h>
 #include "region_growing_segmentation.h"
 
+#include <opencv2/calib3d.hpp>
 #include "mask_rcnn_ros_msgs/GetMaskedSurface.h"
 #include "mask_rcnn_ros_msgs/MaskedObjectAttributes.h"
 
@@ -34,9 +35,10 @@ class MaskRegionGrowingNode {
 	bool callbackGetMaskedSurface(mask_rcnn_ros_msgs::GetMaskedSurface::Request &req, mask_rcnn_ros_msgs::GetMaskedSurface::Response &res);
 
         void maskedRegionGrowing(cv::Mat mask, float masked_depth_std);
-	mask_rcnn_ros_msgs::MaskedObjectAttributes build_moa_msg(PointCloudT::Ptr cloud, NormalCloudT::Ptr normal_cloud, int center_index, float area, MomentOfInertia moi);
+        void maskedRegionGrowing_pt(cv::Mat mask, float masked_depth_std);
+	mask_rcnn_ros_msgs::MaskedObjectAttributes build_moa_msg(PointT center_point, NormalT normal_axis, float area, MomentOfInertia moi);
 
-	bool checkPointRegion(geometry_msgs::Point point);
+	bool checkPointRegion(PointT point);
 	void publishPointCloud();
 	void publishMarkerArray();
 	void publishMaskedDepthMap();
@@ -55,6 +57,7 @@ class MaskRegionGrowingNode {
 	Eigen::Matrix4f matrix_camera_to_container;
 	float timeout;
 	RegionGrowingSegmentation scene_reg;
+        std::vector<pcl::PointIndices> scene_reg_indices;
 
 	std::string frame_id;
         sensor_msgs::CameraInfoConstPtr camera_info;
@@ -92,14 +95,14 @@ class MaskRegionGrowingNode {
 	std_msgs::ColorRGBA y_axis_color;
 	std_msgs::ColorRGBA z_axis_color;
 	std_msgs::ColorRGBA polygon_color;
-	std_msgs::ColorRGBA raw_center_color;
+	std_msgs::ColorRGBA center_color;
 	std_msgs::ColorRGBA text_color;
 	geometry_msgs::Vector3 arrow_scale;
 	geometry_msgs::Vector3 sphere_scale;
 	geometry_msgs::Vector3 text_scale;
 
 	PointCloudT::Ptr input_scene;
-	std::vector<PointT> raw_center_list;
+	std::vector<PointT> center_list;
 	std::vector<PointCloudColorT::Ptr> scene_surface_list;
 	std::vector<PointCloudColorT::Ptr> masked_surface_list;
 	std::vector<mask_rcnn_ros_msgs::MaskedObjectAttributes> moas_msg_list;
