@@ -171,6 +171,7 @@ MaskRegionGrowingNode::callbackGetMaskedSurface(mask_rcnn_ros_msgs::GetMaskedSur
 	count++;
     }
 
+    setSurfacePriority();
     res.moas_list = moas_msg_list;
 
     ros::WallTime end_process_time = ros::WallTime::now();
@@ -286,7 +287,7 @@ MaskRegionGrowingNode::maskedRegionGrowing(cv::Mat mask, float masked_depth_std)
     mask_reg.outlierRemove();
     mask_reg.normalEstimationKSearch();
     
-    if (masked_depth_std > 10.0)
+    if (masked_depth_std > 3.0)
     {
         vector<pcl::PointIndices> mask_reg_indices = mask_reg.segmentation();
         if (mask_reg_indices.size() == 0) {
@@ -421,6 +422,13 @@ MaskRegionGrowingNode::build_moa_msg(PointT center_point, NormalT normal_axis, f
         normal.vector.y *= -1;
         normal.vector.z *= -1;
     }
+    if (moi.minor_vectors(2) > 0) {
+        moi.minor_vectors *= -1;
+    }
+
+    float normal_angle = acos(-1*moi.minor_vectors(2)/sqrt(pow(moi.minor_vectors(0),2) + pow(moi.minor_vectors(1),2) + pow(moi.minor_vectors(2),2))) * (180.0 / M_PI);
+    ROS_INFO("  Normal angle is %f degree.", normal_angle);
+
 
     geometry_msgs::Vector3Stamped x_axis;
     geometry_msgs::Vector3Stamped y_axis;
@@ -485,6 +493,76 @@ MaskRegionGrowingNode::build_moa_msg(PointT center_point, NormalT normal_axis, f
     moas_msg.z_axes.push_back(z_axis);
 
     return moas_msg;
+}
+
+void
+MaskRegionGrowingNode::setSurfacePriority()
+{
+    std::vector<mask_rcnn_ros_msgs::MaskedObjectAttributes> moas_msg_list_tmp = moas_msg_list;
+    moas_msg_list = {};
+
+    for (int i = 0; i < moas_msg_list_tmp.size(); i++)
+    {
+        if (moas_msg_list_tmp[i].surface_count == 0 or moas_msg_list_tmp[i].surface_count == 1)
+        {
+            moas_msg_list.push_back(moas_msg_list_tmp[i]);
+            continue;
+        }
+
+        std::vector<float> areas;
+        std::vector<float> normal_angles;
+        for (int j = 0; j < moas_msg_list_tmp[i].surface_count; j++) {
+            float normal_x = moas_msg_list_tmp[i].z_axes[j].vector.x;
+            float normal_y = moas_msg_list_tmp[i].z_axes[j].vector.y;
+            float normal_z = moas_msg_list_tmp[i].z_axes[j].vector.z;
+            float normal_angle = acos(-1 * normal_z / sqrt(pow(normal_x, 2) + pow(normal_y, 2) + pow(normal_z, 2))) * (180.0 / M_PI);
+            normal_angles.push_back(normal_angle); 
+            areas.push_back(moas_msg_list_tmp[i].areas[j]);
+        }
+
+        int areaMaxIndex = std::max_element(areas.begin(), areas.end()) - areas.begin();
+        int n = moas_msg_list_tmp[i].surface_count;
+        std::vector<int> p(n);
+        std::vector<float> areas_tmp(n);
+        std::vector<float> short_sides_tmp(n);
+        std::vector<float> long_sides_tmp(n);
+        std::vector<geometry_msgs::PointStamped> centers_tmp(n);
+        std::vector<geometry_msgs::Vector3Stamped> normals_tmp(n);
+        std::vector<geometry_msgs::Vector3Stamped> x_axes_tmp(n);
+        std::vector<geometry_msgs::Vector3Stamped> y_axes_tmp(n);
+        std::vector<geometry_msgs::Vector3Stamped> z_axes_tmp(n);
+        std::vector<geometry_msgs::PolygonStamped> corners_tmp(n);
+        std::iota(p.begin(), p.end(), 0);
+        if (normal_angles[areaMaxIndex] < 50.0) {
+            sort(p.begin(), p.end(), [&](int a, int b) { return areas[a] > areas[b]; });
+        } else {
+            sort(p.begin(), p.end(), [&](int a, int b) { return normal_angles[a] < normal_angles[b]; });
+        }
+            
+        for (int j = 0; j < n; j++) {
+            areas_tmp[j] = moas_msg_list_tmp[i].areas[p[j]];
+            short_sides_tmp[j] = moas_msg_list_tmp[i].short_sides[p[j]];
+            long_sides_tmp[j] = moas_msg_list_tmp[i].long_sides[p[j]];
+            centers_tmp[j] = moas_msg_list_tmp[i].centers[p[j]];
+            normals_tmp[j] = moas_msg_list_tmp[i].normals[p[j]];
+            x_axes_tmp[j] = moas_msg_list_tmp[i].x_axes[p[j]];
+            y_axes_tmp[j] = moas_msg_list_tmp[i].y_axes[p[j]];
+            z_axes_tmp[j] = moas_msg_list_tmp[i].z_axes[p[j]];
+            corners_tmp[j] = moas_msg_list_tmp[i].corners[p[j]];
+        }
+        moas_msg_list_tmp[i].areas = areas_tmp;
+        moas_msg_list_tmp[i].short_sides = short_sides_tmp;
+        moas_msg_list_tmp[i].long_sides = long_sides_tmp;
+        moas_msg_list_tmp[i].centers = centers_tmp;
+        moas_msg_list_tmp[i].normals = normals_tmp;
+        moas_msg_list_tmp[i].x_axes = x_axes_tmp;
+        moas_msg_list_tmp[i].y_axes = y_axes_tmp;
+        moas_msg_list_tmp[i].z_axes = z_axes_tmp;
+        moas_msg_list_tmp[i].corners = corners_tmp;
+        
+        moas_msg_list.push_back(moas_msg_list_tmp[i]);
+    }
+        
 }
 
 bool

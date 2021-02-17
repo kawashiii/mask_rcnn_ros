@@ -321,6 +321,7 @@ class MaskRCNNNode(object):
             final_result_msg.areas.append(masked_object_attrs.areas[0])
             final_result_msg.centers.append(masked_object_attrs.centers[0])
             final_result_msg.normals.append(masked_object_attrs.normals[0])
+            final_result_msg.moas.append(masked_object_attrs)
             if not self.check_object_size(masked_object_attrs):
                 rospy.logwarn("Object Id %d is out of gt size", i)
                 mask_color = [0.0, 0.0, 1.0]

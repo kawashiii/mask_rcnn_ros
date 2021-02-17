@@ -36,9 +36,11 @@ class MaskRegionGrowingNode {
 
         void maskedRegionGrowing(cv::Mat mask, float masked_depth_std);
         void maskedRegionGrowing_pt(cv::Mat mask, float masked_depth_std);
+        
 	mask_rcnn_ros_msgs::MaskedObjectAttributes build_moa_msg(PointT center_point, NormalT normal_axis, float area, MomentOfInertia moi);
 
 	bool checkPointRegion(PointT point);
+        void setSurfacePriority();
 	void publishPointCloud();
 	void publishMarkerArray();
 	void publishMaskedDepthMap();
