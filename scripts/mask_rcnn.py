@@ -83,10 +83,6 @@ class MaskRCNNNode(object):
 
         # for change depth coordinate from camera to container
         self.mesh_width, self.mesh_height = np.meshgrid(np.arange(width), np.arange(height))
-        self.trans = np.asarray([-0.05529858, -0.03283987, 1.58937867])
-        self.rot = np.asarray([[-0.99975764, -0.01042886, -0.01938806],
-                               [-0.01002908,  0.99973742, -0.02060383],
-                               [ 0.01959784, -0.02040439, -0.99959971]])
 
         self.debug_mode = 0      
         if rospy.has_param("/mask_rcnn/debug_mode") and rospy.get_param("/mask_rcnn/debug_mode"):
@@ -169,8 +165,34 @@ class MaskRCNNNode(object):
         return res
 
     def callback_sub_trigger(self, msg):
-        trigger_id = msg.data
+        start_build_msg = time.time()
 
+        trigger_id = msg.data
+        self.detect()
+        res = self.build_result_msg()
+
+        end_build_msg = time.time() 
+        build_msg_time = end_build_msg - start_build_msg
+        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
+
+        self.is_service_called = True
+        self.trigger_id_pub.publish(trigger_id)
+
+    def callback_get_detection(self, req):
+        start_build_msg = time.time()
+
+        res = MaskRCNNSrvResponse()
+        self.detect()
+        res.detectedMaskRCNN = self.build_result_msg()
+
+        end_build_msg = time.time() 
+        build_msg_time = end_build_msg - start_build_msg
+        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
+
+        self.is_service_called = True
+        return res
+
+    def detect(self):
         # Get Image
         rospy.loginfo("Waiting frame ...")
         timeout = 10
@@ -183,14 +205,14 @@ class MaskRCNNNode(object):
         depth_msg = rospy.wait_for_message(depth_topic, Image, timeout)
         rospy.loginfo("Acquired frame")
 
-        start_build_msg = time.time()
-
         # Convert Image
         np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
         np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
-        cv2.imwrite(self.log_dir + "/" + str(self.save_id).zfill(4) + ".png", np_image)
-        np.save(self.log_dir + "/" + str(self.save_id).zfill(4) + "_depth", np_depth)
-        self.save_id += 1
+        if not self.debug_mode:
+            cv2.imwrite(self.log_dir + "/" + str(self.save_id).zfill(4) + ".png", np_image)
+            np.save(self.log_dir + "/" + str(self.save_id).zfill(4) + "_depth", np_depth)
+            self.save_id += 1
+        
         self.image = np.copy(np_image)
         
         if lab_config.DEPTH_COORDINATE == "container":
@@ -199,7 +221,7 @@ class MaskRCNNNode(object):
             xyz_image[...,2] = np_depth/1000
             xyz_image[...,0] = (self.mesh_width - self.cx) * xyz_image[...,2] / self.fx
             xyz_image[...,1] = (self.mesh_height - self.cy) * xyz_image[...,2] / self.fy
-            xyz_image= (np.dot(self.rot, xyz_image.reshape(-1,3).T).T.reshape(height, width, 3) + self.trans) * 1000
+            xyz_image = (np.dot(lab_config.ROT, xyz_image.reshape(-1,3).T).T.reshape(height, width, 3) + lab_config.TRANS) * 1000
             np_depth = (np.copy(xyz_image[...,2])).astype(np.float32)
         self.depth = np.copy(np_depth)
         
@@ -220,76 +242,7 @@ class MaskRCNNNode(object):
 
         # Build msg
         self.result = results[0]
-        res = self.build_result_msg()
-
-        end_build_msg = time.time() 
-        build_msg_time = end_build_msg - start_build_msg
-        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
-
-        self.is_service_called = True
-        self.trigger_id_pub.publish(trigger_id)
-
-    def callback_get_detection(self, req):
-        res = MaskRCNNSrvResponse()
-
-        # Get Image
-        rospy.loginfo("Waiting frame ...")
-        timeout = 10
-        image_topic = lab_config.IMAGE_TOPIC
-        depth_topic = lab_config.DEPTH_TOPIC
-        if self.debug_mode:
-            image_topic = "/debug" + image_topic
-            depth_topic = "/debug" + depth_topic
-
-        image_msg = rospy.wait_for_message(image_topic, Image, timeout)
-        depth_msg = rospy.wait_for_message(depth_topic, Image, timeout)
-        rospy.loginfo("Acquired frame")
-
-        start_build_msg = time.time()
-
-        # Convert Image
-        np_image = self.cv_bridge.imgmsg_to_cv2(image_msg, 'bgr8')
-        np_depth = self.cv_bridge.imgmsg_to_cv2(depth_msg, '32FC1')
-        cv2.imwrite(self.log_dir + "/" + str(self.save_id).zfill(4) + ".png", np_image)
-        np.save(self.log_dir + "/" + str(self.save_id).zfill(4), np_depth)
-        self.save_id += 1
-        self.image = np.copy(np_image)
-
-        if lab_config.DEPTH_COORDINATE == "container":
-            height, width = np_depth.shape
-            xyz_image = np.zeros((height, width, 3), np.float32)
-            xyz_image[...,2] = np_depth/1000
-            xyz_image[...,0] = (self.mesh_width - self.cx) * xyz_image[...,2] / self.fx
-            xyz_image[...,1] = (self.mesh_height - self.cy) * xyz_image[...,2] / self.fy
-            xyz_image= (np.dot(self.rot, xyz_image.reshape(-1,3).T).T.reshape(height, width, 3) + self.trans) * 1000
-            np_depth = (np.copy(xyz_image[...,2])).astype(np.float32)
-
-        self.depth = np.copy(np_depth)
         
-        # Run Detection
-        input_data = cv2.cvtColor(np_image, cv2.COLOR_BGR2RGB)
-        input_data = lab_config.NORMALIZE_TEXTURE(input_data)
-        if lab_config.INPUT_DATA_TYPE == "depth":
-            input_data = np_depth.reshape([np_depth.shape[0], np_depth.shape[1], 1])
-            input_data = lab_config.NORMALIZE_DEPTH(input_data)
-        
-        start_detection = time.time() 
-        rospy.loginfo("Detecting ...")
-        results = self.model.detect([input_data], verbose=0)
-        end_detection = time.time()
-        detection_time = end_detection - start_detection
-        rospy.loginfo("%s[s] (Detection time)", round(detection_time, 3))
-
-        # Build msg
-        self.result = results[0]
-        res.detectedMaskRCNN = self.build_result_msg()
-
-        end_build_msg = time.time() 
-        build_msg_time = end_build_msg - start_build_msg
-        rospy.loginfo("%s[s] (Total time)", round(build_msg_time, 3))
-
-        self.is_service_called = True
-        return res
 
     def build_result_msg(self):
         rospy.loginfo("Building msg ...")
@@ -337,22 +290,11 @@ class MaskRCNNNode(object):
             mask_msg = self.cv_bridge.cv2_to_imgmsg(biggest_mask, 'mono8')
             mask_msgs.append(mask_msg)
 
-            index_for_std = np.bitwise_and(mask>0.5, self.depth>0.0)
+            index_for_std = np.bitwise_and(mask>0.5, self.depth<400.0)
             masked_depth_std = np.std(self.depth[index_for_std])
+            print(masked_depth_std)
             masked_depth_std_msg.append(masked_depth_std)
-           
-            # Draw information to image 
-            #id_caption = "ID:" + str(i)
-            #class_caption = class_name + " " +  str(round(score, 3))
-            #cv2.putText(self.vis_processed_result, id_caption, (x1, y1 - 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA) 
-            #cv2.putText(self.vis_processed_result, class_caption, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,0,255), 2, cv2.LINE_AA)
 
-        # if len(result_msg.class_names) == 0:
-        #     self.result_pub.publish(result_msg)
-        #     self.marker_pub.publish(axes_marker_msg)
-
-        #     rospy.logwarn("No objects could be detected.")
-        #     return result_msg
         try:
             get_masked_surface = rospy.ServiceProxy("/mask_region_growing/get_masked_surface", GetMaskedSurface)
             res = get_masked_surface(is_rigid_object, mask_msgs, masked_depth_std_msg)

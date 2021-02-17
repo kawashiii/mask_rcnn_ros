@@ -46,10 +46,16 @@ NORMALIZE_DEPTH = normalize_depth
 CLASS_NAMES = ['BG', 'obj']
 
 INPUT_DATA_TYPE = "depth"
-DEPTH_COORDINATE = "container" # or camera
 TRAINED_MODEL = "mask_rcnn_lab_depth_from_container.h5"
 #INPUT_DATA_TYPE = "rgb"
 #TRAINED_MODEL = "mask_rcnn_lab_choice.h5"
+
+DEPTH_COORDINATE = "container" # or camera
+# change coordinate matrix from camera to container
+TRANS = np.asarray([-0.05529858, -0.03283987, 1.58937867])
+ROT   = np.asarray([[-0.99975764, -0.01042886, -0.01938806],
+                    [-0.01002908,  0.99973742, -0.02060383],
+                    [ 0.01959784, -0.02040439, -0.99959971]])
 
 class LabConfig(Config):
     # Give the configuration a recognizable name
@@ -75,5 +81,5 @@ class LabConfig(Config):
 
     DETECTION_MIN_CONFIDENCE = 0.5
 
-    DETECTION_NMS_THRESHOLD = 0.3
+    DETECTION_NMS_THRESHOLD = 0.1
 
