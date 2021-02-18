@@ -44,6 +44,11 @@ MODEL_DIR = os.path.join(ROOT_DIR, "models/")
 
 class MaskRCNNNode(object):
     def __init__(self):
+        self.debug_mode = 0      
+        if rospy.has_param("/mask_rcnn/debug_mode") and rospy.get_param("/mask_rcnn/debug_mode"):
+            rospy.logwarn("'mask_rcnn' node is Debug Mode")
+            self.debug_mode = 1
+
         self.cv_bridge = CvBridge()
         self.is_service_called = False
         self.target_object = "beads"
@@ -72,22 +77,18 @@ class MaskRCNNNode(object):
         rospy.loginfo("Acquired camera info")
 
         # Create log dir
-        today = datetime.datetime.now()
-        log_dir = os.path.join(ROOT_DIR, "logs/" + str(today.year) + str(today.month).zfill(2) + str(today.day).zfill(2))
-        if not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-        dir_num = len(os.listdir(log_dir))
-        self.log_dir = os.path.join(log_dir, str(dir_num))
-        os.makedirs(self.log_dir)
-        self.save_id = 0
+        if not self.debug_mode:
+            today = datetime.datetime.now()
+            log_dir = os.path.join(ROOT_DIR, "logs/" + str(today.year) + str(today.month).zfill(2) + str(today.day).zfill(2))
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            dir_num = len(os.listdir(log_dir))
+            self.log_dir = os.path.join(log_dir, str(dir_num))
+            os.makedirs(self.log_dir)
+            self.save_id = 0
 
         # for change depth coordinate from camera to container
         self.mesh_width, self.mesh_height = np.meshgrid(np.arange(width), np.arange(height))
-
-        self.debug_mode = 0      
-        if rospy.has_param("/mask_rcnn/debug_mode") and rospy.get_param("/mask_rcnn/debug_mode"):
-            rospy.logwarn("'mask_rcnn' node is Debug Mode")
-            self.debug_mode = 1
 
     def run(self):
         # Define Publisher
