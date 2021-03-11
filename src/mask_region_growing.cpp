@@ -424,6 +424,8 @@ MaskRegionGrowingNode::build_moa_msg(PointT center_point, NormalT normal_axis, f
     }
 
     float normal_angle = acos(moi.minor_vectors(2)/sqrt(pow(moi.minor_vectors(0),2) + pow(moi.minor_vectors(1),2) + pow(moi.minor_vectors(2),2))) * (180.0 / M_PI);
+    if (moi.minor_vectors(2) < 0)
+        normal_angle = acos(-1 * moi.minor_vectors(2)/sqrt(pow(moi.minor_vectors(0),2) + pow(moi.minor_vectors(1),2) + pow(moi.minor_vectors(2),2))) * (180.0 / M_PI);
     ROS_INFO("  Normal angle is %f degree.", normal_angle);
 
     geometry_msgs::Vector3Stamped x_axis;
@@ -507,6 +509,8 @@ MaskRegionGrowingNode::setSurfacePriority()
             float normal_y = moas_msg_list_tmp[i].z_axes[j].vector.y;
             float normal_z = moas_msg_list_tmp[i].z_axes[j].vector.z;
             float normal_angle = acos(normal_z / sqrt(pow(normal_x, 2) + pow(normal_y, 2) + pow(normal_z, 2))) * (180.0 / M_PI);
+            if (normal_z < 0)
+                normal_angle = acos(-1 * normal_z / sqrt(pow(normal_x, 2) + pow(normal_y, 2) + pow(normal_z, 2))) * (180.0 / M_PI);
             normal_angles.push_back(normal_angle); 
             areas.push_back(moas_msg_list_tmp[i].areas[j]);
         }
